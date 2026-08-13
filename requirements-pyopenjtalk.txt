@@ -1,0 +1,4 @@
+# The release bundles the maintained Open JTalk dictionary and supports
+# current CPython wheels, so no historical Cython/build-isolation workaround
+# is needed anymore.
+pyopenjtalk==0.4.1

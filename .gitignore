@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Packaging output
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# Local model data
+speaker_info/
+
+# Local editor and operating-system files
+.idea/
+.DS_Store

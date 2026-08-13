@@ -1,0 +1,2 @@
+# Install without dependencies; runtime dependencies are pinned in requirements.txt.
+espnet @ git+https://github.com/shirowanisan/espnet.git@ae56482e0187bf513081fc5df3253895ddda8947
