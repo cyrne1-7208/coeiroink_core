@@ -1,0 +1,198 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "リリースするバージョン（例: v0.1.0）"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coeiroink-core-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  validate-inputs:
+    name: Validate release inputs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Validate version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "${#VERSION}" -gt 64 ] || [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "version must use the vX.Y.Z format: $VERSION" >&2
+            exit 2
+          fi
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: validate-inputs
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - target: linux-cpu
+            os: ubuntu-24.04
+            python: "3.14"
+            extra: cpu
+          - target: linux-cuda
+            os: ubuntu-24.04
+            python: "3.14"
+            extra: cuda
+          - target: linux-opencl
+            os: ubuntu-24.04
+            python: "3.14"
+            extra: opencl
+          - target: windows-cpu
+            os: windows-2022
+            python: "3.14"
+            extra: cpu
+          - target: windows-cuda
+            os: windows-2022
+            python: "3.14"
+            extra: cuda
+          - target: windows-directml
+            os: windows-2022
+            python: "3.12"
+            extra: directml
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install OpenCL build dependencies
+        if: matrix.target == 'linux-opencl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libsqlite3-dev \
+            ocl-icd-opencl-dev \
+            opencl-headers
+
+      - name: Set up Python and uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: 0.12.5
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Validate uv.lock
+        run: uv lock --check
+
+      - name: Install the locked target environment
+        env:
+          BACKEND: ${{ matrix.extra }}
+        run: uv sync --locked --extra "$BACKEND" --group build --group dev
+
+      - name: Check installed dependencies and imports
+        env:
+          BACKEND: ${{ matrix.extra }}
+        run: |
+          uv pip check
+          uv run --locked --extra "$BACKEND" --group dev python -c \
+            "import coeirocore, torch; print('Core import ok; torch', torch.__version__)"
+
+      - name: Check target device bindings
+        if: matrix.extra == 'directml' || matrix.extra == 'opencl'
+        env:
+          BACKEND: ${{ matrix.extra }}
+        run: |
+          if [ "$BACKEND" = directml ]; then
+            uv run --locked --extra directml --group dev python -c \
+              "import torch_directml; print('DirectML bindings import ok')"
+          else
+            uv run --locked --extra opencl --group dev python -c \
+              "import pytorch_ocl; print('OpenCL bindings import ok')"
+          fi
+
+      - name: Run lightweight backend regression tests
+        env:
+          BACKEND: ${{ matrix.extra }}
+        run: uv run --locked --extra "$BACKEND" --group dev pytest -q test/test_devices.py
+
+      - name: Build wheel and source distribution
+        run: uv build --wheel --sdist --out-dir dist
+
+      - name: Create target source archive
+        env:
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+          import zipfile
+          from pathlib import Path
+
+          target = os.environ["TARGET"]
+          version = os.environ["VERSION"]
+          archive = Path("dist") / f"coeiroink-core-{target}-{version}.zip"
+          root = f"coeiroink-core-{target}-{version}"
+          tracked = subprocess.check_output(["git", "ls-files", "-z"]).split(b"\0")
+
+          with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as output:
+              for raw_path in tracked:
+                  if not raw_path:
+                      continue
+                  path = Path(os.fsdecode(raw_path))
+                  if path.is_file():
+                      output.write(path, f"{root}/{path.as_posix()}")
+              for path in sorted(Path("dist").glob("*")):
+                  if path.is_file() and path != archive:
+                      output.write(path, f"{root}/dist/{path.name}")
+              (Path("dist") / "target.txt").write_text(target + "\n", encoding="utf-8")
+              output.write(Path("dist") / "target.txt", f"{root}/dist/target.txt")
+          (Path("dist") / "target.txt").unlink()
+          PY
+
+      - name: Upload target archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coeiroink-core-${{ matrix.target }}
+          path: dist/coeiroink-core-${{ matrix.target }}-${{ inputs.version }}.zip
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    name: Publish Core release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      # GitHub Releaseの作成・更新にだけ書き込み権限を与える。
+      contents: write
+    steps:
+      - name: Download all target archives
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: coeiroink-core-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish or update the GitHub release
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ inputs.version }}
+          commit: ${{ github.sha }}
+          artifacts: release-assets/*
+          allowUpdates: true
+          replacesArtifacts: true
+          artifactErrorsFailBuild: true

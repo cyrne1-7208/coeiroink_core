@@ -36,13 +36,17 @@ runs:
       run: uv lock --check
 
     - name: Resolve backend dependencies
+      env:
+        BACKEND: ${{ inputs.backend }}
       shell: bash
-      run: uv sync --locked --extra "${{ inputs.backend }}" --group build
+      run: uv sync --locked --extra "$BACKEND" --group build
 
     - name: Import-check Core and PyTorch
+      env:
+        BACKEND: ${{ inputs.backend }}
       shell: bash
       run: |
-        uv run --locked --extra "${{ inputs.backend }}" --group build python -c \
+        uv run --locked --extra "$BACKEND" --group build python -c \
           "import coeirocore, torch; print('coeirocore import ok; torch', torch.__version__)"
 
     - name: Import-check DirectML bindings
