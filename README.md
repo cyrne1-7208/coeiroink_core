@@ -2,40 +2,52 @@
 
 Cyrne1によってフォークされたCOEIROINK Coreです。
 
+MYCOEIROINKのVITSモデルを実行し、Engineへ波形と音素durationを提供します。GUIやHTTPサーバーは含みません。
+
 ## 対象環境
 
-現在の公式検証対象はLinux x64 CPU、Python 3.12です。CoreとEngineを同じ親ディレクトリへ配置してください。
+CoreとEngineを同じ親ディレクトリへ配置し、利用するバックエンドを1つ選択します。
+
+| OS | バックエンド | uv extra | Python |
+| --- | --- | --- | --- |
+| Linux x64 | CPU | `cpu` | 3.12–3.14 |
+| Linux x64 | CUDA | `cuda` | 3.12–3.14 |
+| Linux x64 | OpenCL | `opencl` | 3.12–3.14 |
+| Windows x64 | CPU | `cpu` | 3.12–3.14 |
+| Windows x64 | CUDA | `cuda` | 3.12–3.14 |
+| Windows x64 | DirectML | `directml` | 3.12 |
+
+OpenCLの利用には、GPUベンダーのOpenCL ICD、OpenCLヘッダー、loader、SQLite 3の開発ヘッダーが必要です。
 
 ## セットアップ
 
-Engine側のセットアップスクリプトが、CPU版PyTorch、Open JTalk辞書、固定したESPnet互換環境をまとめて構築します。
+依存関係は`pyproject.toml`で定義し、`uv.lock`で固定しています。LinuxまたはWindowsのCPU環境では次を実行します。
 
 ```bash
-bash ../coeiroink_engine/build_util/setup_mycoeiroink_linux_cpu.bash ../coeiroink_engine/.venv .
+uv sync --locked --extra cpu
 ```
 
-`speaker_info`には、展開したMYCOEIROINKモデルのフォルダを配置します。旧形式（`config.yaml`の`version: 0.10.3`）と、COEIROINK v2形式のモデルを対象に、`speakerUuid`と`styleId`の組でモデルを識別します。
+CUDAまたはOpenCLでは`cpu`を`cuda`または`opencl`へ置き換えてください。Windows DirectMLでは次を実行します。
 
-直接インストールする場合は、Coreの依存関係を導入した後に次を実行します。
-
-```bash
-python -m pip install --editable .
+```powershell
+uv sync --python 3.12 --locked --extra directml
 ```
 
-`requirements-espnet.txt`はモデル互換性のため固定した公開ESPnetコミットを指定しています。`requirements-pyopenjtalk.txt`はOpen JTalk辞書を提供します。
+各extraは相互排他的です。`speaker_info`には展開したMYCOEIROINKモデルのフォルダを配置します。旧形式（`config.yaml`の`version: 0.10.3`）とCOEIROINK v2形式のモデルに対応し、`speakerUuid`と`styleId`の組でモデルを識別します。
 
 ## テスト
 
 ```bash
-PYTHONPATH=src python -m pytest -q
+uv sync --locked --extra cpu --group dev
+uv run --locked --extra cpu --group dev pytest -q
 ```
 
-モデルは要求時にロードされ、正常にロードされたモデルはプロセス内に保持されます。明示的なモデル数上限は設けず、CPU環境の利用可能メモリを自然な上限とします。
+モデルは要求時にロードされ、正常にロードされたモデルはプロセス内に保持されます。明示的なモデル数上限は設けず、利用可能なメモリを上限とします。
 
 ## ライセンス
 
-LGPL v3です。詳細は[LICENSE](./LICENSE)を参照してください。
+LGPL-3.0-onlyです。詳細は[LICENSE](./LICENSE)を参照してください。
 
 ## 謝辞
 
-本プロジェクトは、[shirowanisan/coeiroink_core](https://github.com/shirowanisan/coeiroink_core)の公開ソースを基盤に、[ESPnet](https://github.com/espnet/espnet)、[pyopenjtalk](https://github.com/r9y9/pyopenjtalk)、[PyTorch](https://pytorch.org/)などのオープンソースソフトウェアを利用しています。各プロジェクトの開発者・貢献者に感謝します。
+本プロジェクトは、[COEIROINK](https://coeiroink.com/)および[shirowanisan/coeiroink_core](https://github.com/shirowanisan/coeiroink_core)の公開ソースを基盤に、[VOICEVOX](https://github.com/VOICEVOX/voicevox)、[ESPnet](https://github.com/espnet/espnet)、[pyopenjtalk](https://github.com/r9y9/pyopenjtalk)、[PyTorch](https://pytorch.org/)などのオープンソースソフトウェアを利用しています。各プロジェクトの開発者・貢献者に感謝します。

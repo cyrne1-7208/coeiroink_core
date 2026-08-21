@@ -1,28 +1,24 @@
-from typing import List, Optional
-
 from pydantic import BaseModel
 
 
 class Mora(BaseModel):
     text: str
-    consonant: Optional[str] = None
-    consonant_length: Optional[float] = None
+    consonant: str | None = None
+    consonant_length: float | None = None
     vowel: str
     vowel_length: float
     pitch: float
 
 
 class AccentPhrase(BaseModel):
-    moras: List[Mora]
+    moras: list[Mora]
     accent: int
-    pause_mora: Optional[Mora] = None
+    pause_mora: Mora | None = None
     is_interrogative: bool
 
 
 class AudioQuery(BaseModel):
-    """VOICEVOX互換のcamelCaseフィールドを保持する音声合成クエリです。"""
-
-    accent_phrases: List[AccentPhrase]
+    accent_phrases: list[AccentPhrase]
     speedScale: float
     pitchScale: float
     intonationScale: float
@@ -31,4 +27,4 @@ class AudioQuery(BaseModel):
     postPhonemeLength: float
     outputSamplingRate: int
     outputStereo: bool
-    kana: Optional[str] = None
+    kana: str | None = None

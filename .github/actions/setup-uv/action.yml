@@ -1,0 +1,25 @@
+name: Set up Python and uv
+description: Set up the requested Python version and the repository's pinned uv tool.
+
+inputs:
+  python-version:
+    description: Python version to install.
+    required: true
+  enable-cache:
+    description: Whether to persist uv's package cache.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      with:
+        python-version: ${{ inputs.python-version }}
+    - name: Set up uv
+      uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      with:
+        version: "0.12.5"
+        enable-cache: ${{ inputs.enable-cache }}
+        cache-dependency-glob: uv.lock

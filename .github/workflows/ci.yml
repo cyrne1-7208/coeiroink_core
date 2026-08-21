@@ -1,0 +1,73 @@
+name: Core CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/**
+      - native/**
+      - src/**
+      - test/**
+      - pyproject.toml
+      - uv.lock
+      - LICENSE
+  pull_request:
+    paths:
+      - .github/**
+      - native/**
+      - src/**
+      - test/**
+      - pyproject.toml
+      - uv.lock
+      - LICENSE
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-cpu:
+    name: Linux CPU (Python 3.14)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: Set up Python and uv
+        uses: ./.github/actions/setup-uv
+        with:
+          python-version: "3.14"
+          enable-cache: "true"
+
+      - name: Validate workflow files
+        shell: bash
+        run: |
+          actionlint_version=1.7.12
+          actionlint_dir="${RUNNER_TEMP}/actionlint"
+          archive="${actionlint_dir}/actionlint.tar.gz"
+          mkdir -p "${actionlint_dir}"
+          curl --fail --location --retry 3 --retry-delay 5 \
+            --output "${archive}" \
+            "https://github.com/rhysd/actionlint/releases/download/v${actionlint_version}/actionlint_${actionlint_version}_linux_amd64.tar.gz"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  ${archive}" | sha256sum --check
+          tar -xzf "${archive}" -C "${actionlint_dir}" actionlint
+          "${actionlint_dir}/actionlint" -color
+
+      - name: Validate uv.lock
+        run: uv lock --check
+
+      - name: Install Linux CPU dependencies
+        run: uv sync --locked --extra cpu --group dev
+
+      - name: Run Ruff
+        run: |
+          uv run --locked --extra cpu --group dev ruff check src test
+          uv run --locked --extra cpu --group dev ruff format --check src test
+
+      - name: Run unit tests
+        run: uv run --locked --extra cpu --group dev pytest -q

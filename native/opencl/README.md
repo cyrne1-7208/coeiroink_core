@@ -1,0 +1,9 @@
+# COEIROINK OpenCL backend
+
+CUDAを利用できないLinux GPUでCOEIROINK CoreのPyTorch推論を実行するための任意バックエンドです。`pytorch_dlprim`と`dlprimitives`を固定コミットからビルドし、PyTorchのPrivateUse1デバイスを`ocl`として登録します。
+
+Coreが追加実装したVITS演算とpytorch_dlprimの対応演算はOpenCLで実行します。Coreにもpytorch_dlprimにもGPU実装がない演算はpytorch_dlprimの標準機構が警告を出してCPUへフォールバックするため、性能低下をログから確認できます。
+
+ビルドにはOpenCL C++ headers、ICD loader、SQLite 3の開発ヘッダーが必要です。利用者向けの導入方法と`uv` profileはCoreのルートREADMEを参照してください。GPUドライバはwheelへ同梱しません。
+
+DLPrimitivesはAMD・Intel GPU向けにコンパイル済みカーネルを`$HOME/.dlprimitives/cache.db`へ保存し、同じデバイスとドライバを使う次回起動で再利用します。NVIDIAでは上流設計どおりドライバ内蔵キャッシュを利用します。`DLPRIM_CACHE_DIR`で保存先を変更でき、`DLPRIM_CACHE_DISABLE=1`で無効化できます。

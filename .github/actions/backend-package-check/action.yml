@@ -1,0 +1,56 @@
+name: Check backend environment
+description: Resolve and import-check one Core backend without requiring accelerator hardware.
+
+inputs:
+  backend:
+    description: uv extra to validate.
+    required: true
+  python-version:
+    description: Python version to use.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install OpenCL build dependencies
+      if: inputs.backend == 'opencl' && runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install --no-install-recommends -y libsqlite3-dev opencl-headers ocl-icd-opencl-dev
+
+    - name: Set up Python
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Set up uv
+      uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      with:
+        version: "0.12.5"
+        enable-cache: true
+        cache-dependency-glob: uv.lock
+
+    - name: Validate uv.lock
+      shell: bash
+      run: uv lock --check
+
+    - name: Resolve backend dependencies
+      shell: bash
+      run: uv sync --locked --extra "${{ inputs.backend }}" --group build
+
+    - name: Import-check Core and PyTorch
+      shell: bash
+      run: |
+        uv run --locked --extra "${{ inputs.backend }}" --group build python -c \
+          "import coeirocore, torch; print('coeirocore import ok; torch', torch.__version__)"
+
+    - name: Import-check DirectML bindings
+      if: inputs.backend == 'directml'
+      shell: bash
+      run: uv run --locked --extra directml --group build python -c "import torch_directml; print('torch-directml import ok')"
+
+    - name: Import-check OpenCL bindings
+      if: inputs.backend == 'opencl'
+      shell: bash
+      run: uv run --locked --extra opencl --group build python -c "import pytorch_ocl; print('OpenCL bindings import ok')"
