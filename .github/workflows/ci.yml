@@ -2,25 +2,25 @@ name: Core CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
       - .github/**
+      - compat/**
       - native/**
       - src/**
       - test/**
       - pyproject.toml
       - uv.lock
-      - LICENSE
   pull_request:
     paths:
       - .github/**
+      - compat/**
       - native/**
       - src/**
       - test/**
       - pyproject.toml
       - uv.lock
-      - LICENSE
+  workflow_dispatch:
 
 permissions:
   contents: read
