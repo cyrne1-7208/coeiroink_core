@@ -1,62 +1,29 @@
 [build-system]
 requires = [
     "setuptools>=73,<74",
-    "setuptools-scm>=8,<9",
     "wheel>=0.45,<1",
-    "Cython>=3.1,<4",
-    "cmake>=3.31,<4",
-    "ninja>=1.11,<2",
 ]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "coeirocore"
-version = "0.1.0"
+version = "0.1.1+coeiroink.1.7.3"
 description = "COEIROINK Core synthesis library"
-requires-python = ">=3.12,<3.15"
+requires-python = ">=3.12,<3.13"
 license = { file = "LICENSE" }
 authors = [{ name = "shirowanisan" }]
 urls = { Homepage = "https://github.com/cyrne1-7208/coeiroink_core" }
 dependencies = [
-    "audioread>=3,<4",
-    "configargparse>=1.7,<2",
-    "decorator>=5.1,<6",
-    "einops>=0.8,<1",
-    "filelock>=3.16,<4",
-    "fsspec>=2024.6,<2027",
-    "h5py>=3.12,<4",
-    "humanfriendly>=10,<11",
-    "hydra-core>=1.3,<2",
-    "jaconv>=0.4,<1",
-    "joblib>=1.3,<2",
-    # ローカル版を厳密に指定し、uv以外の解決で外部kaldiioへ意図せず戻らないようにする。
+    # ESPnetの依存名をローカルガードへ確実に解決させるため、推移依存にせず明示する。
     "kaldiio==2.18.1+coeiroink.guard1",
     "librosa>=0.11,<1",
-    "llvmlite>=0.49,<0.50",
-    "matplotlib>=3.9,<4",
-    "mpmath>=1.3,<2",
-    "networkx>=3.3,<4",
-    "nltk>=3.9,<4",
     "numba>=0.67,<0.68",
     "numpy>=2.3,<2.4",
-    "omegaconf>=2.3,<3",
-    "packaging>=24,<27",
     "pyopenjtalk @ git+https://github.com/r9y9/pyopenjtalk.git@v0.4.1",
     "pydantic>=2.13,<3",
-    "pyparsing>=3.1,<4",
     "pyworld>=0.3.5,<0.4",
     "pyyaml>=6.0.1,<7",
     "resampy>=0.4.3,<1",
-    "scikit-learn>=1.7,<2",
-    "scipy>=1.16,<2",
-    "sentencepiece==0.2.1",
-    "soundfile>=0.14,<1",
-    "sympy>=1.13,<2",
-    "tensorboard>=2.18,<3",
-    "typing-extensions>=4.12,<5",
-    "datasets>=3,<5",
-    "dask[distributed]>=2024.1,<2027",
-    "dask-jobqueue>=0.9,<1",
 ]
 
 [project.optional-dependencies]
@@ -72,16 +39,18 @@ cuda = [
     "torchaudio==2.10.0",
 ]
 directml = [
-    # torch-directmlが対応するWindows用wheelに合わせ、DirectMLだけPython 3.12とTorch 2.4.1へ制限する。
-    "espnet @ git+https://github.com/espnet/espnet.git@v.202604-patch1 ; sys_platform == 'win32' and python_version < '3.13'",
-    "torch==2.4.1; sys_platform == 'win32' and python_version < '3.13'",
-    "torchaudio==2.4.1; sys_platform == 'win32' and python_version < '3.13'",
-    "torch-directml==0.2.5.dev240914; sys_platform == 'win32' and python_version < '3.13'",
+    # torch-directmlのWindows wheelに合わせ、DirectMLではTorch 2.4.1を使用する。
+    "espnet @ git+https://github.com/espnet/espnet.git@v.202604-patch1 ; sys_platform == 'win32'",
+    "torch==2.4.1; sys_platform == 'win32'",
+    "torchaudio==2.4.1; sys_platform == 'win32'",
+    "torch-directml==0.2.5.dev240914; sys_platform == 'win32'",
 ]
 opencl = [
     # OpenCLはLinuxでCUDAを利用できないGPU向けのPrivateUse1 backendとして個別に導入する。
-    "coeiroink-opencl==0.1.0; sys_platform == 'linux'",
+    "coeiroink-opencl==0.1.1+coeiroink.1.7.3; sys_platform == 'linux'",
     "espnet @ git+https://github.com/espnet/espnet.git@v.202604-patch1 ; sys_platform == 'linux'",
+    # native packageの依存メタデータはTorch ABI解決のため空にしているので、Python bindingとその実行時依存は親extraで宣言する。
+    "mako>=1.3.10,<2; sys_platform == 'linux'",
     "pyopencl>=2026.1.2,<2027; sys_platform == 'linux'",
     "torch==2.10.0; sys_platform == 'linux'",
     "torchaudio==2.10.0; sys_platform == 'linux'",
@@ -89,22 +58,13 @@ opencl = [
 
 [dependency-groups]
 dev = [
-    "httpx2>=2.12,<3",
     "pytest>=8.3,<9",
     "ruff>=0.11,<1",
+    # 実モデル合成テストが生成波形を検査するために直接使用する。
+    "soundfile>=0.14,<1",
 ]
 build = [
-    "Cython>=3.1,<4",
-    "cmake>=3.31,<4",
-    "ninja>=1.11,<2",
     "patchelf>=0.19,<1; sys_platform == 'linux'",
-    "pybind11>=3,<4",
-    "setuptools>=73,<74",
-    "setuptools-scm>=8,<9",
-    "wheel>=0.45,<1",
-]
-licenses = [
-    "pip-licenses>=5,<6",
 ]
 
 [tool.uv]
@@ -168,7 +128,7 @@ coeiroink-opencl = [
 
 [[tool.uv.dependency-metadata]]
 name = "coeiroink-opencl"
-version = "0.1.0"
+version = "0.1.1+coeiroink.1.7.3"
 # backend別Torchは親extraで固定済みなので、ローカルpackageの重複要件をlock解決へ持ち込まない。
 requires-dist = []
 

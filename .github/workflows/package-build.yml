@@ -36,7 +36,7 @@ jobs:
       - name: Set up Python and uv
         uses: ./.github/actions/setup-uv
         with:
-          python-version: "3.14"
+          python-version: "3.12"
           enable-cache: "true"
 
       - name: Validate uv.lock
@@ -71,15 +71,15 @@ jobs:
           set -euo pipefail
           case "$BACKEND" in
             cpu)
-              matrix='{"include":[{"target":"linux-cpu","runner":"ubuntu-24.04","python":"3.14","extra":"cpu"},{"target":"windows-cpu","runner":"windows-2022","python":"3.14","extra":"cpu"}]}' ;;
+              matrix='{"include":[{"target":"linux-cpu","runner":"ubuntu-24.04","python":"3.12","extra":"cpu"},{"target":"windows-cpu","runner":"windows-2022","python":"3.12","extra":"cpu"}]}' ;;
             cuda)
-              matrix='{"include":[{"target":"linux-cuda","runner":"ubuntu-24.04","python":"3.14","extra":"cuda"},{"target":"windows-cuda","runner":"windows-2022","python":"3.14","extra":"cuda"}]}' ;;
+              matrix='{"include":[{"target":"linux-cuda","runner":"ubuntu-24.04","python":"3.12","extra":"cuda"},{"target":"windows-cuda","runner":"windows-2022","python":"3.12","extra":"cuda"}]}' ;;
             opencl)
-              matrix='{"include":[{"target":"linux-opencl","runner":"ubuntu-24.04","python":"3.14","extra":"opencl"}]}' ;;
+              matrix='{"include":[{"target":"linux-opencl","runner":"ubuntu-24.04","python":"3.12","extra":"opencl"}]}' ;;
             directml)
               matrix='{"include":[{"target":"windows-directml","runner":"windows-2022","python":"3.12","extra":"directml"}]}' ;;
             all)
-              matrix='{"include":[{"target":"linux-cpu","runner":"ubuntu-24.04","python":"3.14","extra":"cpu"},{"target":"windows-cpu","runner":"windows-2022","python":"3.14","extra":"cpu"},{"target":"linux-cuda","runner":"ubuntu-24.04","python":"3.14","extra":"cuda"},{"target":"windows-cuda","runner":"windows-2022","python":"3.14","extra":"cuda"},{"target":"linux-opencl","runner":"ubuntu-24.04","python":"3.14","extra":"opencl"},{"target":"windows-directml","runner":"windows-2022","python":"3.12","extra":"directml"}]}' ;;
+              matrix='{"include":[{"target":"linux-cpu","runner":"ubuntu-24.04","python":"3.12","extra":"cpu"},{"target":"windows-cpu","runner":"windows-2022","python":"3.12","extra":"cpu"},{"target":"linux-cuda","runner":"ubuntu-24.04","python":"3.12","extra":"cuda"},{"target":"windows-cuda","runner":"windows-2022","python":"3.12","extra":"cuda"},{"target":"linux-opencl","runner":"ubuntu-24.04","python":"3.12","extra":"opencl"},{"target":"windows-directml","runner":"windows-2022","python":"3.12","extra":"directml"}]}' ;;
             *)
               echo "unknown backend: $BACKEND" >&2
               exit 2 ;;

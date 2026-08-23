@@ -31,7 +31,7 @@ concurrency:
 
 jobs:
   linux-cpu:
-    name: Linux CPU (Python 3.14)
+    name: Linux CPU (Python 3.12)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -43,7 +43,7 @@ jobs:
       - name: Set up Python and uv
         uses: ./.github/actions/setup-uv
         with:
-          python-version: "3.14"
+          python-version: "3.12"
           enable-cache: "true"
 
       - name: Validate workflow files

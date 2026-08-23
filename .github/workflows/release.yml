@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "リリースするバージョン（例: v0.1.0）"
+        description: "リリースするバージョン（例: v0.1.1+coeiroink.1.7.3）"
         required: true
         type: string
 
@@ -30,8 +30,8 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          if [ "${#VERSION}" -gt 64 ] || [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
-            echo "version must use the vX.Y.Z format: $VERSION" >&2
+          if [ "${#VERSION}" -gt 64 ] || [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\+coeiroink\.1\.7\.3$ ]]; then
+            echo "version must use the vX.Y.Z+coeiroink.1.7.3 format: $VERSION" >&2
             exit 2
           fi
 
@@ -47,23 +47,23 @@ jobs:
         include:
           - target: linux-cpu
             os: ubuntu-24.04
-            python: "3.14"
+            python: "3.12"
             extra: cpu
           - target: linux-cuda
             os: ubuntu-24.04
-            python: "3.14"
+            python: "3.12"
             extra: cuda
           - target: linux-opencl
             os: ubuntu-24.04
-            python: "3.14"
+            python: "3.12"
             extra: opencl
           - target: windows-cpu
             os: windows-2022
-            python: "3.14"
+            python: "3.12"
             extra: cpu
           - target: windows-cuda
             os: windows-2022
-            python: "3.14"
+            python: "3.12"
             extra: cuda
           - target: windows-directml
             os: windows-2022

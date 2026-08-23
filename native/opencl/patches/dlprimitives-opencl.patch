@@ -1,0 +1,310 @@
+diff --git a/src/gemm.cpp b/src/gemm.cpp
+index fbe2e6a..c03b355 100644
+--- a/src/gemm.cpp
++++ b/src/gemm.cpp
+@@ -12,6 +12,10 @@
+ 
+ namespace dlprim {
+ namespace gpu {
++
++    // 行列積のタイル構成を入力長から切り離し、動的な音声長ごとのOpenCL再コンパイルを防ぐ。
++    constexpr int gemm_shape_independent_dimension = 64;
++    constexpr int conv_shape_independent_n = 256;
+     
+     class StandardSGEMMBase  {
+     public:
+@@ -245,9 +249,16 @@ namespace gpu {
+                         int bias,
+                         StandardActivations act,
+                         int im2col_chan = 0) : 
+-                StandardSGEMMBase(ctx,M,N,K,true,false,act)
++                StandardSGEMMBase(ctx,
++                                  gemm_shape_independent_dimension,
++                                  gemm_shape_independent_dimension,
++                                  gemm_shape_independent_dimension,
++                                  true,
++                                  false,
++                                  act)
+         {
+-            check_zorder(ctx,M,N);
++            // 実行時のM/Nは変化するため、AMD向けZ-orderも長さ非依存の構成に固定する。
++            check_zorder(ctx,gemm_shape_independent_dimension,gemm_shape_independent_dimension);
+             cl::Program const &prog = Cache::instance().get_program(ctx,"sgemm",
+                                         "TILE_SIZE_M",tile_size_m_,
+                                         "TILE_SIZE_N",tile_size_n_,
+@@ -352,10 +363,16 @@ namespace gpu {
+                         int M,int N,int K,
+                         StandardActivations &act
+                         ):
+-                StandardSGEMMBase(ctx,M,N,K,true,true,act)
++                StandardSGEMMBase(ctx,
++                                  gemm_shape_independent_dimension,
++                                  gemm_shape_independent_dimension,
++                                  gemm_shape_independent_dimension,
++                                  true,
++                                  true,
++                                  act)
+         {
+             DLPRIM_CHECK(act == StandardActivations::identity);
+-            check_zorder(ctx,M,N);
++            check_zorder(ctx,gemm_shape_independent_dimension,gemm_shape_independent_dimension);
+             cl::Program const &prog = Cache::instance().get_program(ctx,"sgemm",
+                                         "BATCH_GEMM",1,
+                                         "TILE_SIZE_M",tile_size_m_,
+@@ -422,7 +439,6 @@ namespace gpu {
+     private:
+         cl::Kernel kernel_;
+         bool bias_;
+-        bool zorder_;
+     };
+     
+ 
+@@ -438,7 +454,7 @@ namespace gpu {
+                     int bias,
+                     StandardActivations act,
+                     int im2col_chan = 0) :
+-                StandardSGEMMBase(ctx,M,N,K,false,false,act)
++                StandardSGEMMBase(ctx,M,conv_shape_independent_n,K,false,false,act)
+         {
+             cl::Program const &prog = Cache::instance().get_program(ctx,"sgemm",
+                                         "TILE_SIZE_M",tile_size_m_,
+@@ -450,7 +466,6 @@ namespace gpu {
+                                         "BIAS",bias,
+                                         "ATRANS",int(atrans),
+                                         "BTRANS",int(btrans),
+-                                        "IM2COL_OCHAN",im2col_chan,
+                                         "CONVGEMM",int(op_mode),
+                                         "KERN_H",  kernel[0], "KERN_W",kernel[1],
+                                         "DILATE_H",dilate[0], "DILATE_W",dilate[1],
+@@ -458,10 +473,6 @@ namespace gpu {
+                                         "STRIDE_H",stride[0], "STRIDE_W",stride[1],
+                                         "GROUPS",groups,
+                                         "CHANNELS_IN",src_channels,
+-                                        "SRC_COLS",src_cols,
+-                                        "SRC_ROWS",src_rows,
+-                                        "IMG_COLS",tgt_cols,
+-                                        "IMG_ROWS",tgt_rows,
+                                         "REDUCE_K",reduce_k_,
+                                         "ACTIVATION",int(act));
+             if(op_mode == GemmOpMode::backward_data) {
+@@ -482,6 +493,11 @@ namespace gpu {
+             s_ = stride[0];
+             ci_ = src_channels;
+             w_ = src_cols;
++            src_rows_ = src_rows;
++            src_cols_ = src_cols;
++            tgt_rows_ = tgt_rows;
++            tgt_cols_ = tgt_cols;
++            im2col_chan_ = im2col_chan;
+         }
+         virtual void gemm(int M,int N,int K,
+                           cl::Buffer &a,
+@@ -531,6 +547,11 @@ namespace gpu {
+             else {
+                 DLPRIM_CHECK(bias == nullptr);
+             }
++            kernel_.setArg(ind++,src_rows_);
++            kernel_.setArg(ind++,src_cols_);
++            kernel_.setArg(ind++,tgt_rows_);
++            kernel_.setArg(ind++,tgt_cols_);
++            kernel_.setArg(ind++,im2col_chan_);
+            
+             int ls0 = tile_size_m_ / block_size_m_;
+             int ls1 = tile_size_n_ / block_size_n_; 
+@@ -562,6 +583,7 @@ namespace gpu {
+         int md_;
+         int w_;
+         int ci_,co_,k_,pad_,s_;
++        int src_rows_,src_cols_,tgt_rows_,tgt_cols_,im2col_chan_;
+     };
+ 
+ 
+diff --git a/src/kernels/sgemm.cl b/src/kernels/sgemm.cl
+index 290f248..5280a24 100644
+--- a/src/kernels/sgemm.cl
++++ b/src/kernels/sgemm.cl
+@@ -70,18 +70,20 @@
+ 
+ #if CONVGEMM != 0
+     #if CONVGEMM == 3
+-    void add_img_value(__global float *ptr,int matrix_row,int matrix_col,float dV)
++    void add_img_value(__global float *ptr,int matrix_row,int matrix_col,float dV,
++                       int src_rows,int src_cols,int img_rows,int img_cols)
+     #else
+-    float get_img_value(__global float const *ptr,int matrix_row,int matrix_col)
++    float get_img_value(__global float const *ptr,int matrix_row,int matrix_col,
++                        int src_rows,int src_cols,int img_rows,int img_cols)
+     #endif
+     {
+ #if KERN_W == 1 && KERN_H == 1 && STRIDE_H == 1 && STRIDE_W == 1 && DILATE_H == 1 && DILATE_W == 1 \
+-        && PAD_H == 0 && PAD_W == 0 && GROUPS == 1 && IMG_COLS == SRC_COLS && IMG_ROWS == SRC_ROWS 
++        && PAD_H == 0 && PAD_W == 0 && GROUPS == 1
+         int channel = matrix_col;
+-        int b  = matrix_row / (IMG_COLS * IMG_ROWS);
+-        int rc = matrix_row % (IMG_COLS * IMG_ROWS);
++        int b  = matrix_row / (img_cols * img_rows);
++        int rc = matrix_row % (img_cols * img_rows);
+ 
+-        int address = (b * CHANNELS_IN + channel) * (SRC_ROWS * SRC_COLS) + rc;
++        int address = (b * CHANNELS_IN + channel) * (src_rows * src_cols) + rc;
+         #if CONVGEMM != 3
+             return ptr[address];
+         #else
+@@ -98,11 +100,11 @@
+         int dy = k_index / KERN_W;
+         int dx = k_index % KERN_W;
+         
+-        int b  = matrix_row / (IMG_COLS * IMG_ROWS);
+-        int rc = matrix_row % (IMG_COLS * IMG_ROWS);
++        int b  = matrix_row / (img_cols * img_rows);
++        int rc = matrix_row % (img_cols * img_rows);
+ 
+-        int r  = rc / IMG_COLS;
+-        int c  = rc % IMG_COLS;
++        int r  = rc / img_cols;
++        int c  = rc % img_cols;
+ 
+         int y_pos = -PAD_H + r * STRIDE_H;
+         int x_pos = -PAD_W + c * STRIDE_W;
+@@ -110,11 +112,11 @@
+         int y = y_pos + dy * DILATE_H;
+         int x = x_pos + dx * DILATE_W;
+ 
+-        int address = ((b *  (CHANNELS_IN*GROUPS) + channel) * SRC_ROWS + y) * SRC_COLS + x;
++        int address = ((b *  (CHANNELS_IN*GROUPS) + channel) * src_rows + y) * src_cols + x;
+ 
+         #if CONVGEMM != 3
+             #if PAD_W > 0 || PAD_H > 0
+-                if(x >= 0 && y >= 0 && x < SRC_COLS && y < SRC_ROWS) {
++                if(x >= 0 && y >= 0 && x < src_cols && y < src_rows) {
+                     return ptr[address];
+                 }
+                 return 0;
+@@ -123,7 +125,7 @@
+             #endif  
+         #else
+             #if PAD_W > 0 || PAD_H > 0
+-                if(x >= 0 && y >= 0 && x < SRC_COLS && y < SRC_ROWS) 
++                if(x >= 0 && y >= 0 && x < src_cols && y < src_rows)
+                     atomic_addf(ptr+address,dV);
+             #else
+                 atomic_addf(ptr+address,dV);
+@@ -143,9 +145,9 @@
+ #  endif
+ #else
+ #  if BTRANS == 0
+-#    define get_B(r,c) get_img_value(B,r,c)
++#    define get_B(r,c) get_img_value(B,r,c,src_rows,src_cols,img_rows,img_cols)
+ #  else
+-#    define get_B(r,c) get_img_value(B,c,r)
++#    define get_B(r,c) get_img_value(B,c,r,src_rows,src_cols,img_rows,img_cols)
+ #  endif
+ #endif
+ 
+@@ -156,12 +158,12 @@
+         #define get_A(r,c) (A[(c)*lda + (r)])
+     #endif
+ #else
+-    float get_y_value(int row,int matrix_col,__global float const *A,int ldc,int M)
++    float get_y_value(int row,int matrix_col,__global float const *A,int ldc,int M,int im2col_ochan)
+     {
+-        int batch = matrix_col / IM2COL_OCHAN;
+-        int incol = matrix_col % IM2COL_OCHAN;
+-        int offset = batch * (IM2COL_OCHAN * GROUPS) * M + incol;
+-        int index =row*IM2COL_OCHAN + offset;
++        int batch = matrix_col / im2col_ochan;
++        int incol = matrix_col % im2col_ochan;
++        int offset = batch * (im2col_ochan * GROUPS) * M + incol;
++        int index =row*im2col_ochan + offset;
+         return A[index];
+     }
+ 
+@@ -171,9 +173,9 @@
+         #define GET_Y_STEP M
+     #endif
+     #if  ATRANS == 0
+-        #define get_A(r,c) (get_y_value(r,c,A,lda,GET_Y_STEP))
++        #define get_A(r,c) (get_y_value(r,c,A,lda,GET_Y_STEP,im2col_ochan))
+     #else
+-        #define get_A(r,c) (get_y_value(c,r,A,lda,GET_Y_STEP))
++        #define get_A(r,c) (get_y_value(c,r,A,lda,GET_Y_STEP,im2col_ochan))
+     #endif
+ 
+ #endif
+@@ -292,7 +294,6 @@ int zorder_b(int x)
+     return zorder_a(x>>1);
+ }
+ 
+-
+ __kernel 
+ #if INTEL_PLATFORM == 1
+ __attribute__((intel_reqd_sub_group_size(8)))
+@@ -325,6 +326,9 @@ void    sgemm(
+         float beta_factor
+ #if BIAS != 0
+         , __global const float * restrict bias,ulong offset_bias
++#endif
++#if CONVGEMM != 0
++        , int src_rows,int src_cols,int img_rows,int img_cols,int im2col_ochan
+ #endif
+         )
+ {
+@@ -346,15 +350,15 @@ void    sgemm(
+     int group = get_global_id(DIM_G) / REDUCE_K;
+     #if CONVGEMM == 1
+         A += M*K*group;
+-        B += SRC_COLS*SRC_ROWS*CHANNELS_IN*group;
+-        C += (IM2COL_OCHAN) * M *group;
++        B += src_cols*src_rows*CHANNELS_IN*group;
++        C += im2col_ochan * M *group;
+         #if BIAS != 0
+         bias += M*group;
+         #endif
+     #elif CONVGEMM == 2
+         // M = channels_out / groups
+-        int step_g_y = (M*IM2COL_OCHAN);
+-        int step_g_x = (SRC_COLS*SRC_ROWS) * CHANNELS_IN;
++        int step_g_y = M*im2col_ochan;
++        int step_g_x = (src_cols*src_rows) * CHANNELS_IN;
+         int step_g_w = M*(CHANNELS_IN*KERN_W*KERN_H);
+         
+         A += step_g_y * group;
+@@ -362,8 +366,8 @@ void    sgemm(
+         C += step_g_w * group;
+     #elif CONVGEMM == 3
+         // K = channels_out / group
+-        int step_g_y = (K*IM2COL_OCHAN);
+-        int step_g_x = (SRC_COLS*SRC_ROWS) * CHANNELS_IN;
++        int step_g_y = K*im2col_ochan;
++        int step_g_x = (src_cols*src_rows) * CHANNELS_IN;
+         int step_g_w = K*(CHANNELS_IN*KERN_W*KERN_H);
+         
+         A += step_g_y * group;
+@@ -694,9 +698,9 @@ void    sgemm(
+             if(col + dc >= N)
+                 continue;
+             int matrix_col = col + dc;
+-            int batch = matrix_col / IM2COL_OCHAN;
+-            int incol = matrix_col % IM2COL_OCHAN;
+-            int offset = batch * (IM2COL_OCHAN * GROUPS) * M + incol;
++            int batch = matrix_col / im2col_ochan;
++            int incol = matrix_col % im2col_ochan;
++            int offset = batch * (im2col_ochan * GROUPS) * M + incol;
+             #pragma unroll
+             for(int dr=0;dr<BLOCK_SIZE_M;dr++) {
+                 if(row+dr < M) {
+@@ -721,7 +725,7 @@ void    sgemm(
+             for(int dc=0;dc<BLOCK_SIZE_N;dc++) {
+                 if(row + dr < M && col+dc < N) {
+                     #if CONVGEMM == 3
+-                        add_img_value(C,row+dr,col+dc,c[dr][dc]);
++                        add_img_value(C,row+dr,col+dc,c[dr][dc],src_rows,src_cols,img_rows,img_cols);
+                     #else
+                         int index = (row+dr)*ldc+col+dc;
+                         #if REDUCE_K > 1
+@@ -739,5 +743,3 @@ void    sgemm(
+     }
+ #endif
+ }
+-
+-
