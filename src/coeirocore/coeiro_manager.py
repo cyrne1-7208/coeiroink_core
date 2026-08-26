@@ -1,3 +1,4 @@
+import gc
 import json
 import math
 import threading
@@ -117,6 +118,72 @@ def _resolve_inference_device(
         device_index=device_index,
         platform_index=opencl_platform_index,
     )
+
+
+_PROSODY_BOUNDARY_MARKERS = frozenset(("[", "]", "#"))
+_MAX_PAUSE_CONTROLLED_SECONDS = 600.0
+
+
+def _replace_internal_pauses(
+    wave: np.ndarray,
+    tokens: list[str],
+    duration_frames: list[int],
+    sampling_rate: int,
+    speed_scale: float,
+    pause_length: float | None,
+    pause_length_scale: float,
+) -> np.ndarray:
+    """ESPnetが返したトークン長を使い、句読点由来の休止だけを置き換える。"""
+
+    if len(tokens) != len(duration_frames):
+        raise SynthesisError("ESPnet token and duration counts do not match")
+    total_frames = sum(duration_frames)
+    if total_frames <= 0 or wave.size % total_frames != 0:
+        raise SynthesisError("ESPnet duration frames do not align with the waveform")
+    samples_per_frame = wave.size // total_frames
+
+    pauses: list[tuple[int, int]] = []
+    cursor = 0
+    pending_samples = 0
+    for token, frame_count in zip(tokens, duration_frames, strict=True):
+        if frame_count < 0:
+            raise SynthesisError("ESPnet returned a negative token duration")
+        token_samples = frame_count * samples_per_frame
+        if token in _PROSODY_BOUNDARY_MARKERS:
+            pending_samples += token_samples
+            continue
+        if token == "_":
+            start = cursor
+            cursor += pending_samples + token_samples
+            pauses.append((start, cursor))
+            pending_samples = 0
+            continue
+        cursor += pending_samples + token_samples
+        pending_samples = 0
+    cursor += pending_samples
+    if cursor != wave.size:
+        raise SynthesisError("ESPnet durations did not consume the waveform")
+
+    chunks: list[np.ndarray] = []
+    cursor = 0
+    output_samples = wave.size
+    max_output_samples = round(sampling_rate * _MAX_PAUSE_CONTROLLED_SECONDS)
+    for start, end in pauses:
+        chunks.append(wave[cursor:start])
+        target_samples = (
+            round((end - start) * pause_length_scale)
+            if pause_length is None
+            else round(sampling_rate * pause_length * pause_length_scale / speed_scale)
+        )
+        output_samples += target_samples - (end - start)
+        if output_samples > max_output_samples:
+            raise InvalidSynthesisParameterError(
+                f"controlled waveform must not exceed {_MAX_PAUSE_CONTROLLED_SECONDS} seconds"
+            )
+        chunks.append(np.zeros(target_samples, dtype=wave.dtype))
+        cursor = end
+    chunks.append(wave[cursor:])
+    return np.concatenate(chunks)
 
 
 class MetaManager:
@@ -403,7 +470,7 @@ class EspnetModel:
     @staticmethod
     def _waveform(output: dict) -> np.ndarray:
         """任意の継続長データを実体化せず波形だけを取り出す。"""
-        return output["wav"].view(-1).cpu().numpy()
+        return output["wav"].detach().view(-1).cpu().numpy()
 
     def make_voice(
         self, text: str | list[str] | torch.Tensor | np.ndarray, seed: int = 0
@@ -473,10 +540,8 @@ class AudioManager:
         self.device = self.device_selection.backend.value
         self.use_gpu = self.device_selection.backend is not DeviceBackend.CPU
         self.meta_manager = MetaManager(speaker_info_dir=speaker_info_dir)
-        self.previous_model_key: ModelKey | None = None
-        self.previous_style_id: int | None = None
-        self.previous_speaker_uuid: str | None = None
-        self.previous_speed_scale: float | None = None
+        self._current_model_key: ModelKey | None = None
+        self._current_speaker_uuid: str | None = None
         self.current_speaker_model: EspnetModel | None = None
         self._synthesis_lock = threading.RLock()
 
@@ -529,16 +594,12 @@ class AudioManager:
         if (
             not force_reload
             and self.current_speaker_model is not None
-            and self.previous_model_key == model_key
+            and self._current_model_key == model_key
         ):
-            set_speed = getattr(
-                self.current_speaker_model, "set_speed_control_alpha", None
-            )
-            if callable(set_speed):
-                set_speed(1 / speed_scale)
-            self.previous_speed_scale = speed_scale
+            self.current_speaker_model.set_speed_control_alpha(1 / speed_scale)
             return self.current_speaker_model
 
+        self._discard_current_model()
         try:
             model = EspnetModel(
                 model_path=model_paths.model_path,
@@ -553,11 +614,20 @@ class AudioManager:
             ) from err
 
         self.current_speaker_model = model
-        self.previous_model_key = model_key
-        self.previous_style_id = style_id
-        self.previous_speaker_uuid = resolved_speaker_uuid
-        self.previous_speed_scale = speed_scale
+        self._current_model_key = model_key
+        self._current_speaker_uuid = resolved_speaker_uuid
         return model
+
+    def _discard_current_model(self) -> None:
+        """モデル切替前に旧重みへの参照を外し、一時的な二重保持を避ける。"""
+
+        if self.current_speaker_model is None:
+            return
+        self.current_speaker_model = None
+        self._current_model_key = None
+        self._current_speaker_uuid = None
+        # 大きなTorchモジュールは循環参照を含み得るため、次の重みを確保する前に回収する。
+        gc.collect()
 
     def initialize_speaker(
         self,
@@ -568,6 +638,7 @@ class AudioManager:
     ) -> None:
         """公開APIから指定されたモデルを読み込み、必要なら既存モデルを強制的に再初期化する。"""
 
+        self._validate_speed_scale(speed_scale)
         with self._synthesis_lock:
             resolved_speaker_uuid, _ = self.meta_manager.resolve_model_path(
                 style_id=style_id,
@@ -577,14 +648,9 @@ class AudioManager:
             if (
                 skip_reinit
                 and self.current_speaker_model is not None
-                and self.previous_model_key == model_key
+                and self._current_model_key == model_key
             ):
-                set_speed = getattr(
-                    self.current_speaker_model, "set_speed_control_alpha", None
-                )
-                if callable(set_speed):
-                    set_speed(1 / speed_scale)
-                self.previous_speed_scale = speed_scale
+                self.current_speaker_model.set_speed_control_alpha(1 / speed_scale)
                 return
             self._load_model(
                 style_id=style_id,
@@ -608,7 +674,7 @@ class AudioManager:
                 return False
             return (
                 self.current_speaker_model is not None
-                and self.previous_model_key == (resolved_speaker_uuid, style_id)
+                and self._current_model_key == (resolved_speaker_uuid, style_id)
             )
 
     def synthesis(
@@ -623,6 +689,8 @@ class AudioManager:
         post_phoneme_length: float = 0,
         output_sampling_rate: int = 44100,
         speaker_uuid: str | None = None,
+        pause_length: float | None = None,
+        pause_length_scale: float = 1.0,
     ):
         """モデル推論後に音量・F0・無音長・サンプリングレートを指定順で適用する。"""
 
@@ -634,6 +702,9 @@ class AudioManager:
         self._validate_finite_scale(
             "post_phoneme_length", post_phoneme_length, minimum=0
         )
+        if pause_length is not None:
+            self._validate_finite_scale("pause_length", pause_length, minimum=0)
+        self._validate_finite_scale("pause_length_scale", pause_length_scale, minimum=0)
         if (
             isinstance(output_sampling_rate, bool)
             or not isinstance(output_sampling_rate, int)
@@ -643,17 +714,28 @@ class AudioManager:
                 "output_sampling_rate must be a positive integer"
             )
 
-        # ESPnetはプロセス全体の乱数状態を変更するため、モデル切替と推論を同じ排他区間に置く。
+        pause_control_requested = (
+            pause_length is not None or pause_length_scale != 1
+        )
+        duration_frames: list[int] | None = None
         with self._synthesis_lock:
             model = self._load_model(
                 style_id=style_id,
                 speed_scale=speed_scale,
                 speaker_uuid=speaker_uuid,
             )
-            active_speaker_uuid = self.previous_speaker_uuid
+            active_speaker_uuid = self._current_speaker_uuid
             try:
                 model_input = text if isinstance(text, str) else model.tokens2ids(text)
-                wav = model.make_voice(model_input)
+                duration_required = (
+                    pause_control_requested and isinstance(text, list) and "_" in text
+                )
+                if not duration_required:
+                    wav = model.make_voice(model_input)
+                else:
+                    prediction = model.make_voice_with_duration(model_input)
+                    wav = prediction.wav
+                    duration_frames = prediction.duration_frames
             except Exception as err:
                 raise SynthesisError(
                     f"Failed to synthesize MYCOEIROINK style {style_id} for "
@@ -661,6 +743,16 @@ class AudioManager:
                 ) from err
 
         try:
+            if duration_frames is not None:
+                wav = _replace_internal_pauses(
+                    wav,
+                    text,
+                    duration_frames,
+                    self.fs,
+                    speed_scale,
+                    pause_length,
+                    pause_length_scale,
+                )
             wav = self.trim(wav)
             if volume_scale != 1:
                 wav = self.volume(wav, volume_scale)
@@ -670,6 +762,8 @@ class AudioManager:
                 wav = self.sil(wav, self.fs, pre_phoneme_length, post_phoneme_length)
             if output_sampling_rate != self.fs:
                 wav = self.resampling(wav, self.fs, output_sampling_rate)
+        except InvalidSynthesisParameterError:
+            raise
         except Exception as err:
             raise SynthesisError(
                 f"Failed to post-process MYCOEIROINK style {style_id} for "
@@ -697,7 +791,7 @@ class AudioManager:
                 speed_scale=speed_scale,
                 speaker_uuid=speaker_uuid,
             )
-            active_speaker_uuid = self.previous_speaker_uuid
+            active_speaker_uuid = self._current_speaker_uuid
             try:
                 model_input = text if isinstance(text, str) else model.tokens2ids(text)
                 return model.make_voice_with_duration(model_input)
@@ -725,7 +819,7 @@ class AudioManager:
                 speed_scale=speed_scale,
                 speaker_uuid=speaker_uuid,
             )
-            active_speaker_uuid = self.previous_speaker_uuid
+            active_speaker_uuid = self._current_speaker_uuid
             try:
                 model_input = text if isinstance(text, str) else model.tokens2ids(text)
                 return model.make_voice(model_input)
@@ -777,7 +871,6 @@ class AudioManager:
             parallel=True,
         )
 
-    # https://github.com/JeremyCCHsu/Python-Wrapper-for-World-Vocoder/blob/3a7c99a32c717deb8e66bde64b5e60b1a4afce79/demo/demo.py
     @staticmethod
     def get_world(x, fs):
         world = load_pyworld()

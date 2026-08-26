@@ -1,6 +1,7 @@
 import json
 import threading
 import time
+import weakref
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import ClassVar
@@ -178,6 +179,9 @@ def test_audio_manager_cache_key_includes_speaker_uuid(tmp_path: Path):
             self.model_path = kwargs["model_path"]
             type(self).instances.append(self)
 
+        def set_speed_control_alpha(self, value):
+            pass
+
         def tokens2ids(self, tokens):
             return np.arange(len(tokens), dtype=np.int64)
 
@@ -240,6 +244,26 @@ def test_audio_manager_loads_lazily_and_reuses_model(tmp_path: Path):
         manager.synthesis(["^", "u", "$"], style_id=STYLE_ID, speed_scale=1.25)
         assert len(FakeEspnetModel.instances) == 1
         assert FakeEspnetModel.instances[0].speed_control_alpha == 0.8
+        with pytest.raises(InvalidSynthesisParameterError, match="speed_scale"):
+            manager.initialize_speaker(STYLE_ID, speed_scale=0)
+
+
+def test_audio_manager_releases_model_before_forced_reload(tmp_path: Path):
+    speaker_info_dir = tmp_path / "speaker_info"
+    create_old_mycoeiroink_fixture(speaker_info_dir)
+
+    class FakeEspnetModel:
+        def __init__(self, *args, **kwargs):
+            self.cycle = self
+
+    with patch("coeirocore.coeiro_manager.EspnetModel", FakeEspnetModel):
+        manager = AudioManager(speaker_info_dir=speaker_info_dir)
+        manager.initialize_speaker(STYLE_ID)
+        previous_model = weakref.ref(manager.current_speaker_model)
+
+        manager.initialize_speaker(STYLE_ID, skip_reinit=False)
+
+    assert previous_model() is None
 
 
 def test_audio_manager_serializes_concurrent_inference(tmp_path: Path):
@@ -252,6 +276,9 @@ def test_audio_manager_serializes_concurrent_inference(tmp_path: Path):
         state_lock = threading.Lock()
 
         def __init__(self, *args, **kwargs):
+            pass
+
+        def set_speed_control_alpha(self, value):
             pass
 
         def tokens2ids(self, tokens):
@@ -317,6 +344,76 @@ def test_predict_with_duration_returns_untrimmed_wave_and_frames(tmp_path: Path)
 
     assert result.duration_frames == [2, 3, 7]
     assert np.array_equal(result.wav, np.arange(12, dtype=np.float32))
+
+
+def test_audio_manager_changes_only_internal_pause_when_requested(tmp_path: Path):
+    speaker_info_dir = tmp_path / "speaker_info"
+    create_old_mycoeiroink_fixture(speaker_info_dir)
+
+    class FakeEspnetModel:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def tokens2ids(self, tokens):
+            return np.arange(len(tokens), dtype=np.int64)
+
+        def make_voice_with_duration(self, text):
+            return PredictionResult(
+                wav=np.arange(80, dtype=np.float32),
+                duration_frames=[1, 2, 2, 2, 1],
+            )
+
+    with (
+        patch("coeirocore.coeiro_manager.EspnetModel", FakeEspnetModel),
+        patch.object(AudioManager, "trim", side_effect=lambda wave: wave),
+    ):
+        manager = AudioManager(fs=100, speaker_info_dir=speaker_info_dir)
+        wave = manager.synthesis(
+            ["^", "a", "_", "i", "$"],
+            style_id=STYLE_ID,
+            pause_length=0.1,
+            output_sampling_rate=100,
+        )
+
+    expected = np.concatenate(
+        (
+            np.arange(30, dtype=np.float32),
+            np.zeros(10, dtype=np.float32),
+            np.arange(50, 80, dtype=np.float32),
+        )
+    )
+    assert np.array_equal(wave, expected)
+
+
+def test_audio_manager_rejects_pause_output_over_limit(tmp_path: Path):
+    speaker_info_dir = tmp_path / "speaker_info"
+    create_old_mycoeiroink_fixture(speaker_info_dir)
+
+    class FakeEspnetModel:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def tokens2ids(self, tokens):
+            return np.arange(len(tokens), dtype=np.int64)
+
+        def make_voice_with_duration(self, text, duration_frames=None):
+            return PredictionResult(
+                wav=np.ones(3, dtype=np.float32),
+                duration_frames=[1, 1, 1],
+            )
+
+    with patch("coeirocore.coeiro_manager.EspnetModel", FakeEspnetModel):
+        manager = AudioManager(fs=1, speaker_info_dir=speaker_info_dir)
+        with pytest.raises(
+            InvalidSynthesisParameterError,
+            match="controlled waveform must not exceed",
+        ):
+            manager.synthesis(
+                ["^", "_", "$"],
+                style_id=STYLE_ID,
+                pause_length=601.0,
+                output_sampling_rate=1,
+            )
 
 
 def test_espnet_model_uses_request_speed_without_duration_materialization():
@@ -393,7 +490,7 @@ def test_pitch_intonation_preserves_unvoiced_f0_frames():
             "get_world",
             return_value=(np.array([0.0, 100.0, 200.0, 0.0]), None, None),
         ),
-        patch("coeirocore.coeiro_manager.load_pyworld", return_value=fake_world),
+            patch("coeirocore.coeiro_manager.load_pyworld", return_value=fake_world),
     ):
         result = AudioManager.pitch_intonation(
             np.zeros(32, dtype=np.float32),
