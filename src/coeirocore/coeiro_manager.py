@@ -714,9 +714,7 @@ class AudioManager:
                 "output_sampling_rate must be a positive integer"
             )
 
-        pause_control_requested = (
-            pause_length is not None or pause_length_scale != 1
-        )
+        pause_control_requested = pause_length is not None or pause_length_scale != 1
         duration_frames: list[int] | None = None
         with self._synthesis_lock:
             model = self._load_model(

@@ -490,7 +490,7 @@ def test_pitch_intonation_preserves_unvoiced_f0_frames():
             "get_world",
             return_value=(np.array([0.0, 100.0, 200.0, 0.0]), None, None),
         ),
-            patch("coeirocore.coeiro_manager.load_pyworld", return_value=fake_world),
+        patch("coeirocore.coeiro_manager.load_pyworld", return_value=fake_world),
     ):
         result = AudioManager.pitch_intonation(
             np.zeros(32, dtype=np.float32),
