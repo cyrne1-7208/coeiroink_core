@@ -46,7 +46,7 @@ uv run --locked --extra cpu --group dev pytest -q
 
 ## ライセンス
 
-LGPL-3.0-onlyです。詳細は[LICENSE](./LICENSE)を参照してください。
+LGPL-3.0-onlyです。詳細は[LICENSE](./LICENSE)を参照してください。LGPLv3が参照するGPLv3本文は[licenses/GPL-3.0.txt](./licenses/GPL-3.0.txt)に収録しています。
 
 ## 謝辞
 

@@ -78,9 +78,14 @@ set_property(TARGET pt_ocl PROPERTY LINK_LIBRARIES "${_coeiroink_pt_ocl_link_lib
 add_custom_target(coeiroink_opencl_build ALL DEPENDS pt_ocl)
 install(TARGETS pt_ocl LIBRARY DESTINATION pytorch_ocl)
 install(FILES "${CMAKE_CURRENT_LIST_DIR}/python/pytorch_ocl/__init__.py" DESTINATION pytorch_ocl)
-# OpenCL wheel単体で再配布条件を確認できるよう、リポジトリのLGPL本文も同梱する。
+# OpenCL wheel単体で再配布条件を確認できるよう、LGPLv3と参照先のGPLv3本文も同梱する。
 install(
-  FILES "${CMAKE_CURRENT_LIST_DIR}/../../LICENSE"
+  FILES "${CMAKE_CURRENT_LIST_DIR}/LICENSE"
   DESTINATION pytorch_ocl
   RENAME COEIROINK_LICENSE.txt
+)
+install(
+  FILES "${CMAKE_CURRENT_LIST_DIR}/licenses/GPL-3.0.txt"
+  DESTINATION pytorch_ocl
+  RENAME GPL-3.0.txt
 )
