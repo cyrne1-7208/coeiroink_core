@@ -9,7 +9,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "coeiroink-opencl"
-version = "0.1.2+coeiroink.1.7.3"
+version = "0.1.3+coeiroink.1.7.3"
 description = "OpenCL PrivateUse1 backend for COEIROINK Core"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

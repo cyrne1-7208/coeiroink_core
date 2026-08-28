@@ -8,15 +8,19 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-import librosa
 import numpy as np
-import resampy
 import torch
 import yaml
 
 from .devices import DeviceBackend, DeviceSelection, normalize_backend, resolve_device
+from .espnet_inference import optimize_espnet_for_inference
 from .opencl import OpenCLVitsMode
 from .pyworld_compat import load_pyworld
+from .waveform import (
+    ensure_resampler_available,
+    resample_waveform,
+    trim_silence,
+)
 
 
 @lru_cache(maxsize=1)
@@ -409,6 +413,7 @@ class EspnetModel:
             noise_scale=0.333,
             noise_scale_dur=0.333,
         )
+        optimize_espnet_for_inference(self.tts_model)
         # alpha非対応モデルへ推論引数を誤って渡さないよう、モデル読込時に対応状況を確定する。
         self._supports_speed_control = "alpha" in self.tts_model.decode_conf
         if not self._supports_speed_control and speed_scale != 1.0:
@@ -459,7 +464,7 @@ class EspnetModel:
             if self.device_selection.backend is DeviceBackend.OPENCL
             else nullcontext()
         )
-        with dispatch_mode:
+        with torch.inference_mode(), dispatch_mode:
             if not self._supports_speed_control:
                 return self.tts_model(text)
             return self.tts_model(
@@ -509,6 +514,7 @@ class AudioManager:
         opencl_platform_index: int = 0,
         speaker_info_dir: str | Path = Path("speaker_info"),
         cpu_num_threads: int | None = None,
+        resampler: str = "resampy",
     ):
         if isinstance(fs, bool) or not isinstance(fs, int) or fs <= 0:
             raise ValueError("fs must be a positive integer")
@@ -531,6 +537,7 @@ class AudioManager:
                     numba.set_num_threads(cpu_num_threads)
 
         self.fs = fs
+        self.resampler = ensure_resampler_available(resampler)
         self.device_selection = _resolve_inference_device(
             device=device,
             use_gpu=use_gpu,
@@ -759,7 +766,7 @@ class AudioManager:
             if pre_phoneme_length != 0 or post_phoneme_length != 0:
                 wav = self.sil(wav, self.fs, pre_phoneme_length, post_phoneme_length)
             if output_sampling_rate != self.fs:
-                wav = self.resampling(wav, self.fs, output_sampling_rate)
+                wav = self.resample_output(wav, self.fs, output_sampling_rate)
         except InvalidSynthesisParameterError:
             raise
         except Exception as err:
@@ -829,7 +836,7 @@ class AudioManager:
 
     @staticmethod
     def trim(wav):
-        return librosa.effects.trim(wav, top_db=30)[0]
+        return trim_silence(wav, top_db=30)
 
     @staticmethod
     def volume(wav, volume_scale):
@@ -859,14 +866,22 @@ class AudioManager:
         return np.concatenate([pre_pause, wav, post_pause], 0)
 
     @staticmethod
-    def resampling(wav, fs, output_sampling_rate):
-        # 1次元波形では並列カーネルも逐次版と同じ結果になるため、44.1 kHz以外への変換だけ並列化する。
-        return resampy.resample(
+    def resampling(wav, fs, output_sampling_rate, resampler="resampy"):
+        return resample_waveform(
             wav,
             fs,
             output_sampling_rate,
-            filter="kaiser_fast",
-            parallel=True,
+            resampler=resampler,
+        )
+
+    def resample_output(self, wav, fs, output_sampling_rate):
+        """AudioManagerで明示選択されたリサンプラーを出力波形へ適用する。"""
+
+        return self.resampling(
+            wav,
+            fs,
+            output_sampling_rate,
+            resampler=self.resampler,
         )
 
     @staticmethod
