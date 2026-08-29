@@ -206,115 +206,141 @@ class MetaManager:
                 f"Speaker information directory does not exist: {self.speaker_info_dir}"
             )
 
-        speaker_paths = sorted(
+        speaker_uuids: set[str] = set()
+        for speaker_path in self._speaker_paths():
+            self.speaker_infos.append(self._load_speaker(speaker_path, speaker_uuids))
+        self._finalize_indexes()
+
+    def _speaker_paths(self) -> list[Path]:
+        """利用者が配置した話者ディレクトリだけを安定した順序で返す。"""
+
+        return sorted(
             path
             for path in self.speaker_info_dir.iterdir()
             if path.is_dir()
             and not path.name.startswith(".")
             and path.name != "__MACOSX"
         )
-        uuid_set = set()
-        for speaker_path in speaker_paths:
-            metas_path = speaker_path / "metas.json"
-            if not metas_path.is_file():
-                raise SpeakerInfoError(
-                    f"metas.json is missing from MYCOEIROINK directory: {speaker_path}"
-                )
-            try:
-                meta = json.loads(metas_path.read_text(encoding="utf-8"))
-            except (OSError, UnicodeError, json.JSONDecodeError) as err:
-                raise SpeakerInfoError(
-                    f"Failed to read MYCOEIROINK metadata: {metas_path}"
-                ) from err
 
-            if not isinstance(meta, dict):
-                raise SpeakerInfoError(
-                    f"MYCOEIROINK metadata must be a JSON object: {metas_path}"
-                )
+    @staticmethod
+    def _read_metadata(speaker_path: Path) -> tuple[Path, dict]:
+        metas_path = speaker_path / "metas.json"
+        if not metas_path.is_file():
+            raise SpeakerInfoError(
+                f"metas.json is missing from MYCOEIROINK directory: {speaker_path}"
+            )
+        try:
+            metadata = json.loads(metas_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as err:
+            raise SpeakerInfoError(
+                f"Failed to read MYCOEIROINK metadata: {metas_path}"
+            ) from err
+        if not isinstance(metadata, dict):
+            raise SpeakerInfoError(
+                f"MYCOEIROINK metadata must be a JSON object: {metas_path}"
+            )
+        return metas_path, metadata
 
-            uuid = meta.get("speakerUuid")
-            speaker_name = meta.get("speakerName")
-            meta_styles = meta.get("styles")
-            if not isinstance(uuid, str) or not uuid.strip():
-                raise SpeakerInfoError(
-                    f"speakerUuid is missing or invalid: {metas_path}"
-                )
-            if not isinstance(speaker_name, str) or not speaker_name.strip():
-                raise SpeakerInfoError(
-                    f"speakerName is missing or invalid: {metas_path}"
-                )
-            if not isinstance(meta_styles, list) or not meta_styles:
-                raise SpeakerInfoError(f"styles must be a non-empty list: {metas_path}")
-            if uuid in uuid_set:
-                raise SpeakerInfoError(f"Duplicate speakerUuid: {uuid}")
-            uuid_set.add(uuid)
+    @staticmethod
+    def _load_style(
+        speaker_path: Path,
+        metas_path: Path,
+        speaker_uuid: str,
+        style: object,
+        speaker_style_ids: set[int],
+    ) -> tuple[dict[str, object], int, ModelPath]:
+        """1スタイルを検証し、公開メタデータとモデル配置を返す。"""
 
-            styles = []
-            speaker_style_ids = set()
-            for style in meta_styles:
-                if not isinstance(style, dict):
-                    raise SpeakerInfoError(
-                        f"Each style must be a JSON object: {metas_path}"
-                    )
-                style_id = style.get("styleId")
-                style_name = style.get("styleName")
-                if isinstance(style_id, bool) or not isinstance(style_id, int):
-                    raise SpeakerInfoError(
-                        f"styleId is missing or invalid: {metas_path}"
-                    )
-                if not isinstance(style_name, str) or not style_name.strip():
-                    raise SpeakerInfoError(
-                        f"styleName is missing or invalid: {metas_path}"
-                    )
-                if style_id in speaker_style_ids:
-                    raise SpeakerInfoError(
-                        f"Duplicate styleId {style_id} for speakerUuid {uuid}"
-                    )
-                speaker_style_ids.add(style_id)
+        if not isinstance(style, dict):
+            raise SpeakerInfoError(f"Each style must be a JSON object: {metas_path}")
+        style_id = style.get("styleId")
+        style_name = style.get("styleName")
+        if isinstance(style_id, bool) or not isinstance(style_id, int):
+            raise SpeakerInfoError(f"styleId is missing or invalid: {metas_path}")
+        if not isinstance(style_name, str) or not style_name.strip():
+            raise SpeakerInfoError(f"styleName is missing or invalid: {metas_path}")
+        if style_id in speaker_style_ids:
+            raise SpeakerInfoError(
+                f"Duplicate styleId {style_id} for speakerUuid {speaker_uuid}"
+            )
+        speaker_style_ids.add(style_id)
 
-                model_folder_path = speaker_path / "model" / str(style_id)
-                config_path = model_folder_path / "config.yaml"
-                model_paths = sorted(model_folder_path.glob("*.pth"))
-                if not config_path.is_file():
-                    raise SpeakerInfoError(
-                        f"config.yaml is missing for style {style_id}: {config_path}"
-                    )
-                if len(model_paths) != 1:
-                    raise SpeakerInfoError(
-                        f"Style {style_id} must contain exactly one .pth model; "
-                        f"found {len(model_paths)} in {model_folder_path}"
-                    )
+        model_folder_path = speaker_path / "model" / str(style_id)
+        config_path = model_folder_path / "config.yaml"
+        model_paths = sorted(model_folder_path.glob("*.pth"))
+        if not config_path.is_file():
+            raise SpeakerInfoError(
+                f"config.yaml is missing for style {style_id}: {config_path}"
+            )
+        if len(model_paths) != 1:
+            raise SpeakerInfoError(
+                f"Style {style_id} must contain exactly one .pth model; "
+                f"found {len(model_paths)} in {model_folder_path}"
+            )
+        try:
+            config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, yaml.YAMLError) as err:
+            raise SpeakerInfoError(
+                f"Failed to read model config: {config_path}"
+            ) from err
+        if not isinstance(config, dict):
+            raise SpeakerInfoError(
+                f"Model config must be a YAML mapping: {config_path}"
+            )
 
-                try:
-                    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-                except (OSError, UnicodeError, yaml.YAMLError) as err:
-                    raise SpeakerInfoError(
-                        f"Failed to read model config: {config_path}"
-                    ) from err
-                if not isinstance(config, dict):
-                    raise SpeakerInfoError(
-                        f"Model config must be a YAML mapping: {config_path}"
-                    )
+        return (
+            {"name": style_name, "id": style_id},
+            style_id,
+            ModelPath(
+                model_path=model_paths[0].resolve(),
+                config_path=config_path.resolve(),
+            ),
+        )
 
-                styles.append({"name": style_name, "id": style_id})
-                model_path = ModelPath(
-                    model_path=model_paths[0].resolve(),
-                    config_path=config_path.resolve(),
-                )
-                model_key = (uuid, style_id)
-                self.model_map[model_key] = model_path
-                self.style_id_speaker_uuids.setdefault(style_id, []).append(uuid)
+    def _load_speaker(
+        self, speaker_path: Path, speaker_uuids: set[str]
+    ) -> dict[str, object]:
+        """1話者を検証し、モデル索引へ登録する。"""
 
-            version = meta.get("version", "0.0.1")
-            if not isinstance(version, str):
-                version = str(version)
-            speaker_info = {
-                "name": speaker_name,
-                "speaker_uuid": uuid,
-                "styles": styles,
-                "version": version,
-            }
-            self.speaker_infos.append(speaker_info)
+        metas_path, metadata = self._read_metadata(speaker_path)
+        speaker_uuid = metadata.get("speakerUuid")
+        speaker_name = metadata.get("speakerName")
+        metadata_styles = metadata.get("styles")
+        if not isinstance(speaker_uuid, str) or not speaker_uuid.strip():
+            raise SpeakerInfoError(f"speakerUuid is missing or invalid: {metas_path}")
+        if not isinstance(speaker_name, str) or not speaker_name.strip():
+            raise SpeakerInfoError(f"speakerName is missing or invalid: {metas_path}")
+        if not isinstance(metadata_styles, list) or not metadata_styles:
+            raise SpeakerInfoError(f"styles must be a non-empty list: {metas_path}")
+        if speaker_uuid in speaker_uuids:
+            raise SpeakerInfoError(f"Duplicate speakerUuid: {speaker_uuid}")
+        speaker_uuids.add(speaker_uuid)
+
+        styles: list[dict[str, object]] = []
+        speaker_style_ids: set[int] = set()
+        for raw_style in metadata_styles:
+            style, style_id, model_path = self._load_style(
+                speaker_path,
+                metas_path,
+                speaker_uuid,
+                raw_style,
+                speaker_style_ids,
+            )
+            styles.append(style)
+            self.model_map[(speaker_uuid, style_id)] = model_path
+            self.style_id_speaker_uuids.setdefault(style_id, []).append(speaker_uuid)
+
+        version = metadata.get("version", "0.0.1")
+        return {
+            "name": speaker_name,
+            "speaker_uuid": speaker_uuid,
+            "styles": styles,
+            "version": version if isinstance(version, str) else str(version),
+        }
+
+    def _finalize_indexes(self) -> None:
+        """公開順を確定し、一意な従来形式スタイルIDの索引を作る。"""
+
         self.speaker_infos = sorted(
             self.speaker_infos,
             key=lambda speaker: (

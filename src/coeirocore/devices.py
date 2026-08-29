@@ -575,72 +575,68 @@ class DeviceResolver:
             platform_index=platform_index,
         )
 
-    def _probe_backend(self, backend: DeviceBackend) -> DeviceCapability:
-        """実際のデバイス生成まで試し、利用可能なバックエンドだけを公開情報へ含める。"""
+    def _probe_cpu(self) -> DeviceCapability:
+        backend = DeviceBackend.CPU
+        self._resolve_cpu(0)
+        return DeviceCapability(
+            backend=backend,
+            available=True,
+            devices=(DeviceDescriptor(backend=backend, device_index=0, name="CPU"),),
+            device_count=1,
+        )
 
-        if backend is DeviceBackend.CPU:
-            self._resolve_cpu(0)
-            return DeviceCapability(
-                backend=backend,
-                available=True,
-                devices=(
-                    DeviceDescriptor(backend=backend, device_index=0, name="CPU"),
-                ),
-                device_count=1,
+    def _probe_cuda(self) -> DeviceCapability:
+        backend = DeviceBackend.CUDA
+        torch_module = self._load_module(backend)
+        cuda_module = getattr(torch_module, "cuda", None)
+        if cuda_module is None:
+            raise BackendCapabilityError("CUDA backend is missing torch.cuda")
+        if not self._read_bool(cuda_module, "is_available", backend):
+            raise BackendUnavailableError("CUDA backend is not available on this host")
+        count = self._read_optional_count(cuda_module, "device_count", backend)
+        if count is None:
+            raise BackendCapabilityError("CUDA backend does not provide device_count")
+        if count == 0:
+            raise BackendUnavailableError("CUDA backend reported zero devices")
+        return DeviceCapability(
+            backend=backend,
+            available=True,
+            devices=tuple(
+                DeviceDescriptor(backend=backend, device_index=index)
+                for index in range(count)
+            ),
+            device_count=count,
+        )
+
+    def _probe_directml(self) -> DeviceCapability:
+        backend = DeviceBackend.DIRECTML
+        directml_module = self._load_module(backend)
+        availability = getattr(directml_module, "is_available", None)
+        if availability is not None and not self._read_bool(
+            directml_module,
+            "is_available",
+            backend,
+        ):
+            raise BackendUnavailableError(
+                "DirectML backend is not available on this host"
             )
+        count = self._read_optional_count(directml_module, "device_count", backend)
+        if count == 0:
+            raise BackendUnavailableError("DirectML backend reported zero devices")
+        self.resolve(backend, 0)
+        known_devices = range(count) if count is not None else range(1)
+        return DeviceCapability(
+            backend=backend,
+            available=True,
+            devices=tuple(
+                DeviceDescriptor(backend=backend, device_index=index)
+                for index in known_devices
+            ),
+            device_count=count,
+        )
 
-        if backend is DeviceBackend.CUDA:
-            torch_module = self._load_module(backend)
-            cuda_module = getattr(torch_module, "cuda", None)
-            if cuda_module is None:
-                raise BackendCapabilityError("CUDA backend is missing torch.cuda")
-            if not self._read_bool(cuda_module, "is_available", backend):
-                raise BackendUnavailableError(
-                    "CUDA backend is not available on this host"
-                )
-            count = self._read_optional_count(cuda_module, "device_count", backend)
-            if count is None:
-                raise BackendCapabilityError(
-                    "CUDA backend does not provide device_count"
-                )
-            if count == 0:
-                raise BackendUnavailableError("CUDA backend reported zero devices")
-            return DeviceCapability(
-                backend=backend,
-                available=True,
-                devices=tuple(
-                    DeviceDescriptor(backend=backend, device_index=index)
-                    for index in range(count)
-                ),
-                device_count=count,
-            )
-
-        if backend is DeviceBackend.DIRECTML:
-            directml_module = self._load_module(backend)
-            availability = getattr(directml_module, "is_available", None)
-            if availability is not None and not self._read_bool(
-                directml_module,
-                "is_available",
-                backend,
-            ):
-                raise BackendUnavailableError(
-                    "DirectML backend is not available on this host"
-                )
-            count = self._read_optional_count(directml_module, "device_count", backend)
-            if count == 0:
-                raise BackendUnavailableError("DirectML backend reported zero devices")
-            self.resolve(backend, 0)
-            known_devices = range(count) if count is not None else range(1)
-            return DeviceCapability(
-                backend=backend,
-                available=True,
-                devices=tuple(
-                    DeviceDescriptor(backend=backend, device_index=index)
-                    for index in known_devices
-                ),
-                device_count=count,
-            )
-
+    def _probe_opencl(self) -> DeviceCapability:
+        backend = DeviceBackend.OPENCL
         platforms = self._opencl_platforms()
         devices: list[DeviceDescriptor] = []
         for current_platform_index, current_platform in enumerate(platforms):
@@ -669,6 +665,19 @@ class DeviceResolver:
             device_count=len(devices),
             platform_count=len(platforms),
         )
+
+    def _probe_backend(self, backend: DeviceBackend) -> DeviceCapability:
+        """実際のデバイス生成まで試し、利用可能なバックエンドだけを公開情報へ含める。"""
+
+        if backend is DeviceBackend.CPU:
+            return self._probe_cpu()
+        if backend is DeviceBackend.CUDA:
+            return self._probe_cuda()
+        if backend is DeviceBackend.DIRECTML:
+            return self._probe_directml()
+        if backend is DeviceBackend.OPENCL:
+            return self._probe_opencl()
+        raise DeviceConfigurationError(f"unsupported backend: {backend}")
 
 
 def resolve_device(
