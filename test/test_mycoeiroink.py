@@ -51,7 +51,11 @@ def create_old_mycoeiroink_fixture(
         encoding="utf-8",
     )
     (model_dir / "config.yaml").write_text(
-        "token_list: ['<blank>', '<unk>', '<sos/eos>']\ntts: vits\nversion: 0.10.3\n",
+        "token_list: ['<blank>', '<unk>', '<sos/eos>']\n"
+        "feats_extract_conf:\n"
+        "  hop_length: 512\n"
+        "tts: vits\n"
+        "version: 0.10.3\n",
         encoding="utf-8",
     )
     (model_dir / "model.pth").write_bytes(b"test model placeholder")
@@ -81,6 +85,7 @@ def test_discovers_old_mycoeiroink(tmp_path: Path):
         model_path.model_path
         == (speaker_dir / "model" / str(STYLE_ID) / "model.pth").resolve()
     )
+    assert model_path.hop_length == 512
 
 
 def test_rejects_missing_metas(tmp_path: Path):
@@ -246,6 +251,52 @@ def test_audio_manager_loads_lazily_and_reuses_model(tmp_path: Path):
         assert FakeEspnetModel.instances[0].speed_control_alpha == 0.8
         with pytest.raises(InvalidSynthesisParameterError, match="speed_scale"):
             manager.initialize_speaker(STYLE_ID, speed_scale=0)
+
+
+def test_audio_manager_loads_and_reuses_all_models_when_requested(tmp_path: Path):
+    speaker_info_dir = tmp_path / "speaker_info"
+    create_old_mycoeiroink_fixture(speaker_info_dir)
+    create_old_mycoeiroink_fixture(
+        speaker_info_dir,
+        folder_name="second-speaker",
+        speaker_uuid=SPEAKER_UUID_2,
+    )
+
+    class FakeEspnetModel:
+        instances: ClassVar[list] = []
+
+        def __init__(self, *args, **kwargs):
+            self.model_path = kwargs["model_path"]
+            self.instances.append(self)
+
+        def set_speed_control_alpha(self, value):
+            pass
+
+        def tokens2ids(self, tokens):
+            return np.arange(len(tokens), dtype=np.int64)
+
+        def make_voice(self, text):
+            return np.ones(32, dtype=np.float32)
+
+    with (
+        patch("coeirocore.coeiro_manager.EspnetModel", FakeEspnetModel),
+        patch.object(AudioManager, "trim", side_effect=lambda wave: wave),
+    ):
+        manager = AudioManager(
+            speaker_info_dir=speaker_info_dir,
+            load_all_models=True,
+        )
+
+        assert len(FakeEspnetModel.instances) == 2
+        assert manager.is_speaker_initialized(STYLE_ID, speaker_uuid=SPEAKER_UUID)
+        assert manager.is_speaker_initialized(STYLE_ID, speaker_uuid=SPEAKER_UUID_2)
+
+        manager.synthesis(["^", "a", "$"], style_id=STYLE_ID, speaker_uuid=SPEAKER_UUID)
+        manager.synthesis(
+            ["^", "i", "$"], style_id=STYLE_ID, speaker_uuid=SPEAKER_UUID_2
+        )
+
+    assert len(FakeEspnetModel.instances) == 2
 
 
 def test_audio_manager_releases_model_before_forced_reload(tmp_path: Path):

@@ -79,6 +79,7 @@ class InvalidSynthesisParameterError(CoeiroCoreError, ValueError):
 class ModelPath:
     model_path: Path
     config_path: Path
+    hop_length: int
 
 
 @dataclass(frozen=True)
@@ -287,6 +288,20 @@ class MetaManager:
             raise SpeakerInfoError(
                 f"Model config must be a YAML mapping: {config_path}"
             )
+        feats_extract_conf = config.get("feats_extract_conf") or {}
+        if not isinstance(feats_extract_conf, dict):
+            raise SpeakerInfoError(
+                f"feats_extract_conf must be a mapping: {config_path}"
+            )
+        hop_length = feats_extract_conf.get("hop_length", 512)
+        if (
+            isinstance(hop_length, bool)
+            or not isinstance(hop_length, int)
+            or hop_length <= 0
+        ):
+            raise SpeakerInfoError(
+                f"hop_length must be a positive integer: {config_path}"
+            )
 
         return (
             {"name": style_name, "id": style_id},
@@ -294,6 +309,7 @@ class MetaManager:
             ModelPath(
                 model_path=model_paths[0].resolve(),
                 config_path=config_path.resolve(),
+                hop_length=hop_length,
             ),
         )
 
@@ -402,6 +418,18 @@ class MetaManager:
             style_id=style_id,
             speaker_uuid=speaker_uuid,
         )[1]
+
+    def get_hop_length(
+        self,
+        style_id: int,
+        speaker_uuid: str | None = None,
+    ) -> int:
+        """指定モデルの音響フレーム幅を、起動時に検証済みの設定から返す。"""
+
+        return self.get_model_path(
+            style_id=style_id,
+            speaker_uuid=speaker_uuid,
+        ).hop_length
 
 
 class EspnetModel:
@@ -529,7 +557,7 @@ class EspnetModel:
 
 
 class AudioManager:
-    """モデル選択・推論・後処理を管理し、直近に使ったMYCOEIROINKモデルを再利用する。"""
+    """モデル選択・推論・後処理を管理し、設定に応じて直近または全MYCOEIROINKモデルを再利用する。"""
 
     def __init__(
         self,
@@ -541,9 +569,12 @@ class AudioManager:
         speaker_info_dir: str | Path = Path("speaker_info"),
         cpu_num_threads: int | None = None,
         resampler: str = "resampy",
+        load_all_models: bool = False,
     ):
         if isinstance(fs, bool) or not isinstance(fs, int) or fs <= 0:
             raise ValueError("fs must be a positive integer")
+        if not isinstance(load_all_models, bool):
+            raise TypeError("load_all_models must be a boolean")
         if cpu_num_threads is not None:
             if (
                 isinstance(cpu_num_threads, bool)
@@ -570,13 +601,43 @@ class AudioManager:
             device_index=device_index,
             opencl_platform_index=opencl_platform_index,
         )
-        self.device = self.device_selection.backend.value
-        self.use_gpu = self.device_selection.backend is not DeviceBackend.CPU
         self.meta_manager = MetaManager(speaker_info_dir=speaker_info_dir)
+        self._loaded_models: dict[ModelKey, EspnetModel] = {}
+        self._retain_all_models = False
         self._current_model_key: ModelKey | None = None
-        self._current_speaker_uuid: str | None = None
         self.current_speaker_model: EspnetModel | None = None
         self._synthesis_lock = threading.RLock()
+        if load_all_models:
+            self.initialize_all_speakers()
+
+    @property
+    def device(self) -> str:
+        """実際に解決されたバックエンド名を返す。"""
+
+        return self.device_selection.backend.value
+
+    @property
+    def use_gpu(self) -> bool:
+        """旧API向けに、CPU以外の推論バックエンドかを返す。"""
+
+        return self.device_selection.backend is not DeviceBackend.CPU
+
+    def get_hop_length(
+        self,
+        style_id: int,
+        speaker_uuid: str | None = None,
+    ) -> int:
+        return self.meta_manager.get_hop_length(
+            style_id=style_id,
+            speaker_uuid=speaker_uuid,
+        )
+
+    def _active_speaker_uuid(self) -> str:
+        """ロード済みモデルキーから現在の話者UUIDを取得する。"""
+
+        if self._current_model_key is None:
+            raise RuntimeError("no MYCOEIROINK model is loaded")
+        return self._current_model_key[0]
 
     @staticmethod
     def _validate_speed_scale(speed_scale: float) -> None:
@@ -624,15 +685,17 @@ class AudioManager:
             speaker_uuid=speaker_uuid,
         )
         model_key = (resolved_speaker_uuid, style_id)
-        if (
-            not force_reload
-            and self.current_speaker_model is not None
-            and self._current_model_key == model_key
-        ):
-            self.current_speaker_model.set_speed_control_alpha(1 / speed_scale)
-            return self.current_speaker_model
+        if not force_reload and model_key in self._loaded_models:
+            model = self._loaded_models[model_key]
+            model.set_speed_control_alpha(1 / speed_scale)
+            self.current_speaker_model = model
+            self._current_model_key = model_key
+            return model
 
-        self._discard_current_model()
+        if force_reload:
+            self._discard_model(model_key)
+        elif not self._retain_all_models:
+            self._discard_all_models()
         try:
             model = EspnetModel(
                 model_path=model_paths.model_path,
@@ -646,21 +709,49 @@ class AudioManager:
                 f"{resolved_speaker_uuid} from {model_paths.model_path}"
             ) from err
 
+        self._loaded_models[model_key] = model
         self.current_speaker_model = model
         self._current_model_key = model_key
-        self._current_speaker_uuid = resolved_speaker_uuid
         return model
 
-    def _discard_current_model(self) -> None:
-        """モデル切替前に旧重みへの参照を外し、一時的な二重保持を避ける。"""
+    def _discard_model(self, model_key: ModelKey) -> None:
+        """指定モデルへの参照を外し、強制再読込前に旧重みを回収する。"""
 
-        if self.current_speaker_model is None:
-            return
+        model = self._loaded_models.pop(model_key, None)
+        if self._current_model_key == model_key:
+            self.current_speaker_model = None
+            self._current_model_key = None
+        if model is not None:
+            del model
+            gc.collect()
+
+    def _discard_all_models(self) -> None:
+        """通常モードのモデル切替前に全参照を外し、一時的な二重保持を避ける。"""
+
+        had_models = bool(self._loaded_models)
+        self._loaded_models.clear()
         self.current_speaker_model = None
         self._current_model_key = None
-        self._current_speaker_uuid = None
         # 大きなTorchモジュールは循環参照を含み得るため、次の重みを確保する前に回収する。
-        gc.collect()
+        if had_models:
+            gc.collect()
+
+    def initialize_all_speakers(self) -> None:
+        """導入済みの全モデルをロードし、以後のモデル切替でも保持する。"""
+
+        with self._synthesis_lock:
+            self._retain_all_models = True
+            try:
+                for speaker_uuid, style_id in sorted(self.meta_manager.model_map):
+                    self._load_model(
+                        style_id=style_id,
+                        speed_scale=1.0,
+                        speaker_uuid=speaker_uuid,
+                    )
+            except Exception:
+                self._discard_all_models()
+                self._retain_all_models = False
+                raise
 
     def initialize_speaker(
         self,
@@ -673,18 +764,6 @@ class AudioManager:
 
         self._validate_speed_scale(speed_scale)
         with self._synthesis_lock:
-            resolved_speaker_uuid, _ = self.meta_manager.resolve_model_path(
-                style_id=style_id,
-                speaker_uuid=speaker_uuid,
-            )
-            model_key = (resolved_speaker_uuid, style_id)
-            if (
-                skip_reinit
-                and self.current_speaker_model is not None
-                and self._current_model_key == model_key
-            ):
-                self.current_speaker_model.set_speed_control_alpha(1 / speed_scale)
-                return
             self._load_model(
                 style_id=style_id,
                 speed_scale=speed_scale,
@@ -705,10 +784,7 @@ class AudioManager:
                 )
             except StyleNotFoundError:
                 return False
-            return (
-                self.current_speaker_model is not None
-                and self._current_model_key == (resolved_speaker_uuid, style_id)
-            )
+            return (resolved_speaker_uuid, style_id) in self._loaded_models
 
     def synthesis(
         self,
@@ -755,7 +831,7 @@ class AudioManager:
                 speed_scale=speed_scale,
                 speaker_uuid=speaker_uuid,
             )
-            active_speaker_uuid = self._current_speaker_uuid
+            active_speaker_uuid = self._active_speaker_uuid()
             try:
                 model_input = text if isinstance(text, str) else model.tokens2ids(text)
                 duration_required = (
@@ -822,7 +898,7 @@ class AudioManager:
                 speed_scale=speed_scale,
                 speaker_uuid=speaker_uuid,
             )
-            active_speaker_uuid = self._current_speaker_uuid
+            active_speaker_uuid = self._active_speaker_uuid()
             try:
                 model_input = text if isinstance(text, str) else model.tokens2ids(text)
                 return model.make_voice_with_duration(model_input)
@@ -850,7 +926,7 @@ class AudioManager:
                 speed_scale=speed_scale,
                 speaker_uuid=speaker_uuid,
             )
-            active_speaker_uuid = self._current_speaker_uuid
+            active_speaker_uuid = self._active_speaker_uuid()
             try:
                 model_input = text if isinstance(text, str) else model.tokens2ids(text)
                 return model.make_voice(model_input)
