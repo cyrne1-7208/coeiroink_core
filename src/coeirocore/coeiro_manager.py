@@ -1,11 +1,14 @@
 import gc
 import json
+import logging
 import math
+import os
+import sys
 import threading
 from collections.abc import Iterable
 from contextlib import nullcontext
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import cached_property, lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -14,6 +17,8 @@ import yaml
 
 from .devices import DeviceBackend, DeviceSelection, normalize_backend, resolve_device
 from .espnet_inference import optimize_espnet_for_inference
+from .espnet_vits_loader import load_generator_only_text_to_speech
+from .model_memory import model_load_memory_error
 from .opencl import OpenCLVitsMode
 from .pyworld_compat import load_pyworld
 from .waveform import (
@@ -21,6 +26,25 @@ from .waveform import (
     resample_waveform,
     trim_silence,
 )
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _configure_cpu_threads(num_threads: int) -> None:
+    """TorchとNumbaに、指定された同一のCPUスレッド数を設定する。"""
+
+    torch.set_num_threads(num_threads)
+    # PyTorchのinter-opスレッド数は並列処理開始後に変更できないため、既存値と異なる場合だけ設定し、変更不能ならPyTorchの例外を伝播させる。
+    if torch.get_num_interop_threads() != num_threads:
+        torch.set_num_interop_threads(num_threads)
+
+    # Numbaは初回import時の値でワーカープールの最大数を固定するため、その前だけ環境変数を更新する。
+    if "numba" not in sys.modules:
+        os.environ["NUMBA_NUM_THREADS"] = str(num_threads)
+    import numba
+
+    if numba.get_num_threads() != num_threads:
+        numba.set_num_threads(num_threads)
 
 
 @lru_cache(maxsize=1)
@@ -33,7 +57,7 @@ def _load_text_to_speech():
 
 @lru_cache(maxsize=1)
 def _load_g2p_prosody():
-    """文字変換だけの呼び出しで推論依存を読み込まない。"""
+    """文字変換のみの呼び出し時には、推論関連の依存モジュールを読み込まない。"""
     from espnet2.text.phoneme_tokenizer import pyopenjtalk_g2p_prosody
 
     return pyopenjtalk_g2p_prosody
@@ -155,6 +179,7 @@ def _replace_internal_pauses(
             raise SynthesisError("ESPnet returned a negative token duration")
         token_samples = frame_count * samples_per_frame
         if token in _PROSODY_BOUNDARY_MARKERS:
+            # ESPnetが`[`、`]`、`#`にも割り当てた継続長を後続区間へ合算し、発音しない境界記号を除いても波形全体との対応を保つ。
             pending_samples += token_samples
             continue
         if token == "_":
@@ -444,6 +469,7 @@ class EspnetModel:
         device: str | DeviceBackend | DeviceSelection | None = None,
         device_index: int = 0,
         opencl_platform_index: int = 0,
+        generator_only: bool = False,
     ):
         self.device_selection = _resolve_inference_device(
             device=device,
@@ -451,37 +477,69 @@ class EspnetModel:
             device_index=device_index,
             opencl_platform_index=opencl_platform_index,
         )
-        Text2Speech = _load_text_to_speech()
         TokenIDConverter = _load_token_id_converter()
-        # 現行ESPnetはVITSのalphaを推論時に受け取るため、速度変更でモデルを再読込する必要はない。
+        # 旧API互換のため引数名はspeed_scaleだが、実際にはAudioManagerが逆数化したVITSの音素継続長倍率（alpha）を受け取る。
         self._speed_control_alpha = speed_scale
-        self.tts_model = Text2Speech(
-            config_path,
-            model_path,
-            # ESPnetはtypeguardでdeviceをstrに限定するため、検証済みTorchデバイスの標準名を渡す。
-            device=str(self.device_selection.runtime_device),
-            seed=0,
-            # リクエスト固有の値はdecode_confで渡す。
-            speed_control_alpha=1.0,
-            # VITS専用
-            noise_scale=0.333,
-            noise_scale_dur=0.333,
-        )
+        runtime_device = str(self.device_selection.runtime_device)
+        if generator_only:
+            self.tts_model = load_generator_only_text_to_speech(
+                config_path=config_path,
+                model_path=model_path,
+                device=runtime_device,
+                noise_scale=0.333,
+                noise_scale_dur=0.333,
+            )
+        else:
+            Text2Speech = _load_text_to_speech()
+            self.tts_model = Text2Speech(
+                config_path,
+                model_path,
+                # ESPnetはtypeguardでdeviceをstrに限定するため、検証済みTorchデバイスの標準名を渡す。
+                device=runtime_device,
+                seed=0,
+                # リクエスト固有の値はdecode_confで渡す。
+                speed_control_alpha=1.0,
+                # COEIROINKのVITS推論で使用するノイズ尺度。
+                noise_scale=0.333,
+                noise_scale_dur=0.333,
+            )
         optimize_espnet_for_inference(self.tts_model)
         # alpha非対応モデルへ推論引数を誤って渡さないよう、モデル読込時に対応状況を確定する。
         self._supports_speed_control = "alpha" in self.tts_model.decode_conf
         if not self._supports_speed_control and speed_scale != 1.0:
             raise ValueError("the loaded ESPnet model does not support speed control")
 
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
+        token_list = getattr(self.tts_model.train_args, "token_list", None)
+        if not isinstance(token_list, list):
+            raise TypeError("the loaded ESPnet config does not contain token_list")
         self.token_id_converter = TokenIDConverter(
-            token_list=config["token_list"],
+            token_list=token_list,
             unk_symbol="<unk>",
         )
 
+    @cached_property
+    def resident_bytes(self) -> int:
+        """LRUのデバイス容量判定に使う常駐tensorの概算値を返す。"""
+
+        model = self.tts_model.model
+        tensors = [*model.parameters(), *model.buffers()]
+        # 旧ESPnetの相対位置埋め込みはbuffer登録されていないため、OpenCLの常駐量へ明示的に加える。
+        tensors.extend(
+            position
+            for module in model.modules()
+            if isinstance(position := getattr(module, "pe", None), torch.Tensor)
+        )
+        seen: set[int] = set()
+        resident_bytes = 0
+        for tensor in tensors:
+            if id(tensor) in seen:
+                continue
+            seen.add(id(tensor))
+            resident_bytes += tensor.numel() * tensor.element_size()
+        return resident_bytes
+
     def set_speed_control_alpha(self, speed_control_alpha: float) -> None:
-        """重みを再読込せず、次回推論のVITS速度を変更する。"""
+        """重みを再読込せず、次回推論の音素継続長倍率（話速の逆数）を変更する。"""
         if not math.isfinite(speed_control_alpha) or speed_control_alpha <= 0:
             raise ValueError("speed_control_alpha must be a positive finite number")
         if not self._supports_speed_control and speed_control_alpha != 1.0:
@@ -510,7 +568,7 @@ class EspnetModel:
         text: str | torch.Tensor | np.ndarray,
         seed: int,
     ) -> dict:
-        """サーバーで指定されたseedを使ってESPnet推論を実行する。"""
+        """引数で指定された乱数シードを使ってESPnet推論を実行する。"""
         np.random.seed(seed)
         torch.manual_seed(seed)
         dispatch_mode = (
@@ -528,13 +586,13 @@ class EspnetModel:
 
     @staticmethod
     def _waveform(output: dict) -> np.ndarray:
-        """任意の継続長データを実体化せず波形だけを取り出す。"""
+        """継続長データを実体化せず、波形だけを取り出す。"""
         return output["wav"].detach().view(-1).cpu().numpy()
 
     def make_voice(
         self, text: str | list[str] | torch.Tensor | np.ndarray, seed: int = 0
     ) -> np.ndarray:
-        # 通常合成とv1/predictでは継続長を使わないため、テンソルからリストへの変換を省く。
+        # synthesisとpredictでは音素継続長を返さないため、テンソルからリストへの変換を省く。
         output = self._run_inference(self._prepare_text(text), seed=seed)
         return self._waveform(output)
 
@@ -557,7 +615,7 @@ class EspnetModel:
 
 
 class AudioManager:
-    """モデル選択・推論・後処理を管理し、設定に応じて直近または全MYCOEIROINKモデルを再利用する。"""
+    """モデル選択・LRU保持・推論・後処理を一つのロック下で管理する。"""
 
     def __init__(
         self,
@@ -569,12 +627,19 @@ class AudioManager:
         speaker_info_dir: str | Path = Path("speaker_info"),
         cpu_num_threads: int | None = None,
         resampler: str = "resampy",
-        load_all_models: bool = False,
+        max_loaded_models: int | None = 1,
+        generator_only: bool = False,
     ):
         if isinstance(fs, bool) or not isinstance(fs, int) or fs <= 0:
             raise ValueError("fs must be a positive integer")
-        if not isinstance(load_all_models, bool):
-            raise TypeError("load_all_models must be a boolean")
+        if max_loaded_models is not None and (
+            isinstance(max_loaded_models, bool)
+            or not isinstance(max_loaded_models, int)
+            or max_loaded_models <= 0
+        ):
+            raise ValueError("max_loaded_models must be a positive integer or None")
+        if not isinstance(generator_only, bool):
+            raise TypeError("generator_only must be a boolean")
         if cpu_num_threads is not None:
             if (
                 isinstance(cpu_num_threads, bool)
@@ -583,15 +648,8 @@ class AudioManager:
             ):
                 raise ValueError("cpu_num_threads must be zero or a positive integer")
             if cpu_num_threads > 0:
-                torch.set_num_threads(cpu_num_threads)
-                # VITSのアライメント処理はNumba、モデルはTorchを使うため、両方のスレッド数を同じCPU予算に制限する。
-                # inter-op数は並列処理開始後に変更できないので、先行するAudioManagerとの設定競合は例外として通知する。
-                if torch.get_num_interop_threads() != cpu_num_threads:
-                    torch.set_num_interop_threads(cpu_num_threads)
-                import numba
-
-                if numba.get_num_threads() != cpu_num_threads:
-                    numba.set_num_threads(cpu_num_threads)
+                # VITSのアライメント処理はNumba、モデル推論はTorchを使うため、両方に同じCPUスレッド上限を適用する。
+                _configure_cpu_threads(cpu_num_threads)
 
         self.fs = fs
         self.resampler = ensure_resampler_available(resampler)
@@ -603,11 +661,12 @@ class AudioManager:
         )
         self.meta_manager = MetaManager(speaker_info_dir=speaker_info_dir)
         self._loaded_models: dict[ModelKey, EspnetModel] = {}
-        self._retain_all_models = False
+        self._max_loaded_models = max_loaded_models
+        self._generator_only = generator_only
         self._current_model_key: ModelKey | None = None
         self.current_speaker_model: EspnetModel | None = None
         self._synthesis_lock = threading.RLock()
-        if load_all_models:
+        if max_loaded_models is None:
             self.initialize_all_speakers()
 
     @property
@@ -618,7 +677,7 @@ class AudioManager:
 
     @property
     def use_gpu(self) -> bool:
-        """旧API向けに、CPU以外の推論バックエンドかを返す。"""
+        """旧APIとの互換性のため、推論バックエンドがCPU以外であるかを返す。"""
 
         return self.device_selection.backend is not DeviceBackend.CPU
 
@@ -677,7 +736,7 @@ class AudioManager:
         speaker_uuid: str | None = None,
         force_reload: bool = False,
     ) -> EspnetModel:
-        """同じモデルは速度設定だけを更新し、話者またはスタイルが変わった場合に重みを読み直す。"""
+        """ロード済みモデルは直近使用（MRU）を表す辞書末尾へ移し、未ロードモデルだけを新しく読み込む。"""
 
         self._validate_speed_scale(speed_scale)
         resolved_speaker_uuid, model_paths = self.meta_manager.resolve_model_path(
@@ -686,7 +745,8 @@ class AudioManager:
         )
         model_key = (resolved_speaker_uuid, style_id)
         if not force_reload and model_key in self._loaded_models:
-            model = self._loaded_models[model_key]
+            model = self._loaded_models.pop(model_key)
+            self._loaded_models[model_key] = model
             model.set_speed_control_alpha(1 / speed_scale)
             self.current_speaker_model = model
             self._current_model_key = model_key
@@ -694,14 +754,16 @@ class AudioManager:
 
         if force_reload:
             self._discard_model(model_key)
-        elif not self._retain_all_models:
-            self._discard_all_models()
+
+        self._make_room_for_model(model_paths.model_path, style_id)
+
         try:
             model = EspnetModel(
                 model_path=model_paths.model_path,
                 config_path=model_paths.config_path,
                 speed_scale=1 / speed_scale,
                 device=self.device_selection,
+                generator_only=self._generator_only,
             )
         except Exception as err:
             raise ModelLoadError(
@@ -714,6 +776,42 @@ class AudioManager:
         self._current_model_key = model_key
         return model
 
+    def _memory_error_for(self, model_path: Path) -> str | None:
+        return model_load_memory_error(
+            model_path=model_path,
+            selection=self.device_selection,
+            generator_only=self._generator_only,
+            resident_device_bytes=sum(
+                getattr(model, "resident_bytes", 0)
+                for model in self._loaded_models.values()
+            ),
+        )
+
+    def _make_room_for_model(self, model_path: Path, style_id: int) -> None:
+        """保持件数と利用可能メモリの両方を満たすまで、最長未使用（LRU）の辞書先頭からモデルを解放する。"""
+
+        while (
+            self._max_loaded_models is not None
+            and len(self._loaded_models) >= self._max_loaded_models
+        ):
+            self._discard_model(next(iter(self._loaded_models)))
+
+        memory_error = self._memory_error_for(model_path)
+        while memory_error is not None and self._loaded_models:
+            evicted_key = next(iter(self._loaded_models))
+            _LOGGER.warning(
+                "Insufficient memory for another MYCOEIROINK model (%s); "
+                "evicting least recently used model %s",
+                memory_error,
+                evicted_key,
+            )
+            self._discard_model(evicted_key)
+            memory_error = self._memory_error_for(model_path)
+        if memory_error is not None:
+            raise ModelLoadError(
+                f"Refusing to load MYCOEIROINK style {style_id}: {memory_error}"
+            )
+
     def _discard_model(self, model_key: ModelKey) -> None:
         """指定モデルへの参照を外し、強制再読込前に旧重みを回収する。"""
 
@@ -723,10 +821,23 @@ class AudioManager:
             self._current_model_key = None
         if model is not None:
             del model
-            gc.collect()
+            self._collect_released_model_memory()
+
+    def _collect_released_model_memory(self) -> None:
+        """解放したモデルの循環参照と、OpenCLだけが保持するアロケータキャッシュを回収する。"""
+
+        gc.collect()
+        if self.device_selection.backend is DeviceBackend.OPENCL:
+            # OpenCLには再利用可能な予約メモリ量を取得する共通APIがないため、追い出した重みをキャッシュへ残さず容量判定と実使用量を一致させる。
+            opencl_module = getattr(torch, "ocl", None)
+            if opencl_module is None:
+                raise RuntimeError(
+                    "OpenCL backend is active but torch.ocl is unavailable"
+                )
+            opencl_module.empty_cache()
 
     def _discard_all_models(self) -> None:
-        """通常モードのモデル切替前に全参照を外し、一時的な二重保持を避ける。"""
+        """全モデルへの参照を外し、確保済みの重みを回収する。"""
 
         had_models = bool(self._loaded_models)
         self._loaded_models.clear()
@@ -734,13 +845,17 @@ class AudioManager:
         self._current_model_key = None
         # 大きなTorchモジュールは循環参照を含み得るため、次の重みを確保する前に回収する。
         if had_models:
-            gc.collect()
+            self._collect_released_model_memory()
 
     def initialize_all_speakers(self) -> None:
-        """導入済みの全モデルをロードし、以後のモデル切替でも保持する。"""
+        """全モデル保持モードへ切り替え、導入済みモデルを順番に事前ロードする。
+
+        メモリ不足時はLRUモデルを解放するため、完了時の保持数が全件未満になる場合がある。途中で失敗した場合は、ロード済みモデルをすべて破棄して以前の保持上限へ戻す。
+        """
 
         with self._synthesis_lock:
-            self._retain_all_models = True
+            previous_limit = self._max_loaded_models
+            self._max_loaded_models = None
             try:
                 for speaker_uuid, style_id in sorted(self.meta_manager.model_map):
                     self._load_model(
@@ -750,7 +865,7 @@ class AudioManager:
                     )
             except Exception:
                 self._discard_all_models()
-                self._retain_all_models = False
+                self._max_loaded_models = previous_limit
                 raise
 
     def initialize_speaker(
@@ -760,7 +875,7 @@ class AudioManager:
         skip_reinit: bool = True,
         speaker_uuid: str | None = None,
     ) -> None:
-        """公開APIから指定されたモデルを読み込み、必要なら既存モデルを強制的に再初期化する。"""
+        """指定されたモデルを読み込み、必要に応じて既存モデルを強制的に再初期化する。"""
 
         self._validate_speed_scale(speed_scale)
         with self._synthesis_lock:
@@ -801,7 +916,7 @@ class AudioManager:
         pause_length: float | None = None,
         pause_length_scale: float = 1.0,
     ):
-        """モデル推論後に音量・F0・無音長・サンプリングレートを指定順で適用する。"""
+        """モデル推論後に休止置換、トリム、音量、F0、前後無音、リサンプリングを既定の順序で適用する。"""
 
         self._validate_speed_scale(speed_scale)
         self._validate_finite_scale("volume_scale", volume_scale, minimum=0)
@@ -834,6 +949,7 @@ class AudioManager:
             active_speaker_uuid = self._active_speaker_uuid()
             try:
                 model_input = text if isinstance(text, str) else model.tokens2ids(text)
+                # 読点休止がなければ継続長のCPU転送を省き、通常の推論経路を使用する。
                 duration_required = (
                     pause_control_requested and isinstance(text, list) and "_" in text
                 )
@@ -848,6 +964,8 @@ class AudioManager:
                     f"Failed to synthesize MYCOEIROINK style {style_id} for "
                     f"speakerUuid {active_speaker_uuid}"
                 ) from err
+            # 後処理中のモデル切替で旧モデルが不要に残らないよう、推論直後にローカル参照を外す。
+            del model
 
         try:
             if duration_frames is not None:
@@ -888,7 +1006,7 @@ class AudioManager:
     ) -> PredictionResult:
         """未トリムのモデル波形とトークンごとのフレーム長を返す。
 
-        COEIROINK v2では生の推論と波形後処理を分離する。Core内に保持することで、ESPnetの乱数状態と単一モデルキャッシュを従来合成と同じロックで保護できる。
+        COEIROINK v2では生の推論と波形後処理を分離する。推論処理をCore内で管理することで、ESPnetの乱数状態とモデルキャッシュを従来合成と同じロックで保護できる。
         """
 
         self._validate_speed_scale(speed_scale)
@@ -917,7 +1035,7 @@ class AudioManager:
         speed_scale: float = 1.0,
         speaker_uuid: str | None = None,
     ) -> np.ndarray:
-        """v2 predict API向けに未トリムのモデル波形を返す。"""
+        """COEIROINK v2のpredict APIに対応し、後処理前の未トリムなモデル波形を返す。"""
 
         self._validate_speed_scale(speed_scale)
         with self._synthesis_lock:
@@ -947,10 +1065,8 @@ class AudioManager:
     @staticmethod
     def pitch_intonation(wav, fs, pitch_scale, intonation_scale):
         f0, sp, ap = AudioManager.get_world(wav.astype(np.float64), fs)
-        # 音高
         if pitch_scale != 0:
             f0 *= 2**pitch_scale
-        # 抑揚
         if intonation_scale != 1:
             # WORLDは無声音をF0=0で表すため、有声音の平均や抑揚倍率の計算には含めない。
             voiced = f0 > 0
@@ -963,6 +1079,8 @@ class AudioManager:
 
     @staticmethod
     def sil(wav, fs, pre_phoneme_length, post_phoneme_length):
+        """波形の前後に、指定された秒数の無音区間を付加する。"""
+
         pre_pause = np.zeros(int(fs * pre_phoneme_length), dtype=wav.dtype)
         post_pause = np.zeros(int(fs * post_phoneme_length), dtype=wav.dtype)
         return np.concatenate([pre_pause, wav, post_pause], 0)
@@ -988,6 +1106,8 @@ class AudioManager:
 
     @staticmethod
     def get_world(x, fs):
+        """WORLDで波形から基本周波数、スペクトル包絡、非周期性指標を抽出する。"""
+
         world = load_pyworld()
         _f0_h, t_h = world.harvest(x, fs)
         f0_h = world.stonemask(x, _f0_h, t_h, fs)

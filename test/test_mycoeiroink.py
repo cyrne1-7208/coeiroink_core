@@ -1,9 +1,12 @@
 import json
+import os
+import sys
 import threading
 import time
 import weakref
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
@@ -11,6 +14,7 @@ import numpy as np
 import pytest
 import torch
 
+from coeirocore import coeiro_manager
 from coeirocore.coeiro_manager import (
     AmbiguousStyleError,
     AudioManager,
@@ -22,11 +26,53 @@ from coeirocore.coeiro_manager import (
     SpeakerInfoError,
     StyleNotFoundError,
 )
-from coeirocore.devices import resolve_device
+from coeirocore.devices import DeviceBackend, DeviceSelection, resolve_device
 
 SPEAKER_UUID = "00000000-0000-4000-8000-000000000001"
 SPEAKER_UUID_2 = "00000000-0000-4000-8000-000000000002"
 STYLE_ID = 1001
+
+
+def test_cpu_thread_limit_is_available_during_first_numba_import(monkeypatch):
+    fake_numba = ModuleType("numba")
+    fake_numba.get_num_threads = MagicMock(return_value=128)
+    fake_numba.set_num_threads = MagicMock()
+
+    def import_numba(name, *args, **kwargs):
+        assert name == "numba"
+        assert os.environ["NUMBA_NUM_THREADS"] == "2"
+        return fake_numba
+
+    monkeypatch.delitem(sys.modules, "numba", raising=False)
+    monkeypatch.setenv("NUMBA_NUM_THREADS", "128")
+    with (
+        patch("builtins.__import__", side_effect=import_numba),
+        patch.object(torch, "set_num_threads"),
+        patch.object(torch, "get_num_interop_threads", return_value=4),
+        patch.object(torch, "set_num_interop_threads"),
+    ):
+        coeiro_manager._configure_cpu_threads(2)
+
+    fake_numba.set_num_threads.assert_called_once_with(2)
+
+
+def test_cpu_thread_limit_does_not_rewrite_numba_environment_after_import(
+    monkeypatch,
+):
+    fake_numba = ModuleType("numba")
+    fake_numba.get_num_threads = MagicMock(return_value=8)
+    fake_numba.set_num_threads = MagicMock()
+    monkeypatch.setitem(sys.modules, "numba", fake_numba)
+    monkeypatch.setenv("NUMBA_NUM_THREADS", "8")
+
+    with (
+        patch.object(torch, "set_num_threads"),
+        patch.object(torch, "get_num_interop_threads", return_value=2),
+    ):
+        coeiro_manager._configure_cpu_threads(2)
+
+    assert os.environ["NUMBA_NUM_THREADS"] == "8"
+    fake_numba.set_num_threads.assert_called_once_with(2)
 
 
 def create_old_mycoeiroink_fixture(
@@ -284,7 +330,7 @@ def test_audio_manager_loads_and_reuses_all_models_when_requested(tmp_path: Path
     ):
         manager = AudioManager(
             speaker_info_dir=speaker_info_dir,
-            load_all_models=True,
+            max_loaded_models=None,
         )
 
         assert len(FakeEspnetModel.instances) == 2
@@ -297,6 +343,85 @@ def test_audio_manager_loads_and_reuses_all_models_when_requested(tmp_path: Path
         )
 
     assert len(FakeEspnetModel.instances) == 2
+
+
+def test_audio_manager_keeps_most_recently_used_models(tmp_path: Path):
+    speaker_info_dir = tmp_path / "speaker_info"
+    third_speaker_uuid = "00000000-0000-0000-0000-000000000003"
+    create_old_mycoeiroink_fixture(speaker_info_dir)
+    create_old_mycoeiroink_fixture(
+        speaker_info_dir,
+        folder_name="second-speaker",
+        speaker_uuid=SPEAKER_UUID_2,
+    )
+    create_old_mycoeiroink_fixture(
+        speaker_info_dir,
+        folder_name="third-speaker",
+        speaker_uuid=third_speaker_uuid,
+    )
+
+    class FakeEspnetModel:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def set_speed_control_alpha(self, value):
+            pass
+
+    with patch("coeirocore.coeiro_manager.EspnetModel", FakeEspnetModel):
+        manager = AudioManager(
+            speaker_info_dir=speaker_info_dir,
+            max_loaded_models=2,
+        )
+        manager.initialize_speaker(STYLE_ID, speaker_uuid=SPEAKER_UUID)
+        manager.initialize_speaker(STYLE_ID, speaker_uuid=SPEAKER_UUID_2)
+        # 1番目を再利用して末尾へ移し、2番目を次の追い出し対象にする。
+        manager.initialize_speaker(STYLE_ID, speaker_uuid=SPEAKER_UUID)
+        manager.initialize_speaker(STYLE_ID, speaker_uuid=third_speaker_uuid)
+
+    assert manager.is_speaker_initialized(STYLE_ID, speaker_uuid=SPEAKER_UUID)
+    assert not manager.is_speaker_initialized(STYLE_ID, speaker_uuid=SPEAKER_UUID_2)
+    assert manager.is_speaker_initialized(STYLE_ID, speaker_uuid=third_speaker_uuid)
+
+
+@pytest.mark.parametrize("max_loaded_models", [2, None])
+def test_audio_manager_evicts_lru_model_under_memory_pressure(
+    tmp_path: Path,
+    max_loaded_models: int | None,
+):
+    speaker_info_dir = tmp_path / "speaker_info"
+    create_old_mycoeiroink_fixture(speaker_info_dir)
+    create_old_mycoeiroink_fixture(
+        speaker_info_dir,
+        folder_name="second-speaker",
+        speaker_uuid=SPEAKER_UUID_2,
+    )
+
+    class FakeEspnetModel:
+        resident_bytes = 1
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def set_speed_control_alpha(self, value):
+            pass
+
+    with (
+        patch("coeirocore.coeiro_manager.EspnetModel", FakeEspnetModel),
+        patch(
+            "coeirocore.coeiro_manager.model_load_memory_error",
+            side_effect=(None, "test pressure", None),
+        ),
+    ):
+        manager = AudioManager(
+            speaker_info_dir=speaker_info_dir,
+            max_loaded_models=max_loaded_models,
+        )
+        if max_loaded_models is not None:
+            manager.initialize_speaker(STYLE_ID, speaker_uuid=SPEAKER_UUID)
+            manager.initialize_speaker(STYLE_ID, speaker_uuid=SPEAKER_UUID_2)
+
+    assert not manager.is_speaker_initialized(STYLE_ID, speaker_uuid=SPEAKER_UUID)
+    assert manager.is_speaker_initialized(STYLE_ID, speaker_uuid=SPEAKER_UUID_2)
 
 
 def test_audio_manager_releases_model_before_forced_reload(tmp_path: Path):
@@ -315,6 +440,107 @@ def test_audio_manager_releases_model_before_forced_reload(tmp_path: Path):
         manager.initialize_speaker(STYLE_ID, skip_reinit=False)
 
     assert previous_model() is None
+
+
+def test_audio_manager_clears_opencl_cache_after_model_eviction(tmp_path: Path):
+    speaker_info_dir = tmp_path / "speaker_info"
+    create_old_mycoeiroink_fixture(speaker_info_dir)
+
+    class FakeEspnetModel:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    with (
+        patch("coeirocore.coeiro_manager.EspnetModel", FakeEspnetModel),
+        patch("coeirocore.coeiro_manager.resolve_device") as resolve,
+        patch(
+            "coeirocore.coeiro_manager.model_load_memory_error",
+            return_value=None,
+        ),
+        patch.object(torch, "ocl", create=True) as opencl,
+    ):
+        resolve.return_value = DeviceSelection(
+            backend=DeviceBackend.OPENCL,
+            device_index=0,
+            runtime_device="ocl:0",
+            platform="linux",
+            platform_index=0,
+        )
+        manager = AudioManager(device="opencl", speaker_info_dir=speaker_info_dir)
+        manager.initialize_speaker(STYLE_ID)
+        manager._discard_all_models()
+
+    opencl.empty_cache.assert_called_once_with()
+
+
+def test_audio_manager_forced_reload_of_other_model_keeps_single_model(
+    tmp_path: Path,
+):
+    speaker_info_dir = tmp_path / "speaker_info"
+    create_old_mycoeiroink_fixture(speaker_info_dir)
+    create_old_mycoeiroink_fixture(
+        speaker_info_dir,
+        folder_name="second-speaker",
+        speaker_uuid=SPEAKER_UUID_2,
+    )
+
+    class FakeEspnetModel:
+        def __init__(self, *args, **kwargs):
+            self.cycle = self
+
+    with patch("coeirocore.coeiro_manager.EspnetModel", FakeEspnetModel):
+        manager = AudioManager(speaker_info_dir=speaker_info_dir)
+        manager.initialize_speaker(STYLE_ID, speaker_uuid=SPEAKER_UUID)
+        previous_model = weakref.ref(manager.current_speaker_model)
+
+        manager.initialize_speaker(
+            STYLE_ID,
+            speaker_uuid=SPEAKER_UUID_2,
+            skip_reinit=False,
+        )
+
+        assert previous_model() is None
+        assert len(manager._loaded_models) == 1
+        assert manager.is_speaker_initialized(
+            STYLE_ID,
+            speaker_uuid=SPEAKER_UUID_2,
+        )
+
+
+def test_synthesis_releases_model_reference_before_postprocessing(tmp_path: Path):
+    speaker_info_dir = tmp_path / "speaker_info"
+    create_old_mycoeiroink_fixture(speaker_info_dir)
+    model_refs: list[weakref.ReferenceType] = []
+
+    class FakeEspnetModel:
+        def __init__(self, *args, **kwargs):
+            self.cycle = self
+            model_refs.append(weakref.ref(self))
+
+        def set_speed_control_alpha(self, value):
+            pass
+
+        def tokens2ids(self, tokens):
+            return np.arange(len(tokens), dtype=np.int64)
+
+        def make_voice(self, text):
+            return np.ones(32, dtype=np.float32)
+
+    manager: AudioManager
+
+    def release_model(wave: np.ndarray) -> np.ndarray:
+        manager._discard_all_models()
+        assert model_refs[0]() is None
+        return wave
+
+    with (
+        patch("coeirocore.coeiro_manager.EspnetModel", FakeEspnetModel),
+        patch.object(AudioManager, "trim", side_effect=release_model),
+    ):
+        manager = AudioManager(speaker_info_dir=speaker_info_dir)
+        result = manager.synthesis(["^", "a", "$"], style_id=STYLE_ID)
+
+    assert result.shape == (32,)
 
 
 def test_audio_manager_serializes_concurrent_inference(tmp_path: Path):
@@ -501,6 +727,7 @@ def test_espnet_model_passes_runtime_device_as_string(tmp_path: Path):
         def __init__(self, *args, device, **kwargs):
             captured["device"] = device
             self.decode_conf = {"alpha": 1.0}
+            self.train_args = SimpleNamespace(token_list=["<unk>"])
 
     class FakeTokenIDConverter:
         def __init__(self, *args, **kwargs):

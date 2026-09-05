@@ -3,6 +3,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/MemoryOverlap.h>
+#include <dlprim/core/activation.hpp>
 #include <dlprim/core/pointwise.hpp>
 #include <dlprim/gpu/program_cache.hpp>
 
@@ -326,7 +327,7 @@ std::string opencl_type(ScalarType dtype) {
 }
 
 void register_sources() {
-    // dlprimのプロセス共通キャッシュへ一度だけ登録し、同名の異なるソースを黙って上書きしない。
+    // dlprimのプロセス共通キャッシュへ一度だけ登録し、同名の異なるソースを暗黙に上書きしない。
     static std::once_flag once;
     std::call_once(once, [] {
         auto [index_source, index_inserted] =
@@ -380,7 +381,7 @@ void check_error_flag(
     const Tensor& reference,
     const Tensor& flag,
     const char* message) {
-    // OpenCLカーネル内では例外を送出できないため、索引検証時だけ小さなフラグを同期読出しする。
+    // OpenCLカーネル内では例外を送出できないため、索引検証時だけ小さなフラグを同期的に読み出す。
     uint32_t value = 0;
     auto execution = ptdlprim::getExecutionContext(reference);
     execution.queue().enqueueReadBuffer(
@@ -389,7 +390,7 @@ void check_error_flag(
 }
 
 uint32_t count_true_values(const Tensor& mask) {
-    // bool索引の出力形状はデータ依存なので、GPUで数えた要素数だけを同期読出しする。
+    // bool索引の出力形状はデータ依存なので、GPUで数えた要素数だけを同期的に読み出す。
     TORCH_CHECK(mask.scalar_type() == at::kBool, "OpenCL mask must use bool");
     TORCH_CHECK(
         mask.numel() <= std::numeric_limits<uint32_t>::max(),
@@ -802,6 +803,21 @@ Tensor softplus(const Tensor& self, const Scalar& beta, const Scalar& threshold)
     return out;
 }
 
+Tensor relu(const Tensor& self) {
+    Tensor input = self.contiguous();
+    Tensor out = new_tensor(shape(self.sizes()), self, self.scalar_type());
+    if (self.numel() == 0) return out;
+
+    dlprim::Tensor input_view = ptdlprim::todp(input);
+    dlprim::Tensor output_view = ptdlprim::todp(out);
+    dlprim::core::activation_forward(
+        input_view,
+        output_view,
+        dlprim::StandardActivations::relu,
+        ptdlprim::getExecutionContext(self));
+    return out;
+}
+
 Tensor& masked_fill(Tensor& self, const Tensor& mask, const Scalar& value) {
     TORCH_CHECK(mask.scalar_type() == at::kBool, "masked_fill mask must use bool");
     TORCH_CHECK(mask.device() == self.device(), "masked_fill mask must use the input device");
@@ -1015,6 +1031,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("aten::cumsum.out", &coeiroink::opencl::cumsum_out);
     m.impl("aten::softplus", &coeiroink::opencl::softplus);
     m.impl("aten::softplus.out", &coeiroink::opencl::softplus_out);
+    m.impl("aten::relu", &coeiroink::opencl::relu);
     m.impl("aten::masked_fill_.Scalar", &coeiroink::opencl::masked_fill);
     m.impl("aten::clamp.Tensor", &coeiroink::opencl::clamp_tensor);
     m.impl("aten::clamp.Tensor_out", &coeiroink::opencl::clamp_tensor_out);

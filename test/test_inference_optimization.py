@@ -38,6 +38,7 @@ def test_vits_optimization_freezes_weight_norm_without_changing_output() -> None
             with pytest.warns(FutureWarning, match="weight_norm.*deprecated"):
                 WeightNorm.apply(convolution, "weight", 0)
             self.generator = torch.nn.Sequential(convolution)
+            self.discriminator = torch.nn.Linear(2, 2)
 
     vits = FakeVits().eval()
     input_tensor = torch.randn(1, 2, 16)
@@ -59,6 +60,7 @@ def test_vits_optimization_freezes_weight_norm_without_changing_output() -> None
     assert not hasattr(convolution, "weight_v")
     assert torch.equal(before, after)
     assert isinstance(text_to_speech.duration_calculator, _VitsPathDurationCalculator)
+    assert vits.discriminator is None
 
 
 def test_espnet_inference_runs_in_inference_mode() -> None:
@@ -77,3 +79,18 @@ def test_espnet_inference_runs_in_inference_mode() -> None:
     result = model._run_inference("test", seed=0)
 
     assert torch.equal(result["wav"], torch.zeros(1))
+
+
+def test_espnet_model_resident_bytes_includes_unregistered_position_data() -> None:
+    from coeirocore.coeiro_manager import EspnetModel
+
+    class FakeModel(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.weight = torch.nn.Parameter(torch.ones(2))
+            self.pe = torch.ones(3)
+
+    model = EspnetModel.__new__(EspnetModel)
+    model.tts_model = SimpleNamespace(model=FakeModel())
+
+    assert model.resident_bytes == 5 * torch.tensor(1.0).element_size()

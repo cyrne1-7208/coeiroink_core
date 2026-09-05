@@ -33,7 +33,7 @@ def test_pyworld_compat_uses_stdlib_metadata_without_deprecation_warning():
 
 
 def test_text_to_tokens_does_not_load_the_tts_inference_stack():
-    # pyopenjtalk初回辞書展開の第三者警告を、Coreの遅延import検証とは分離する。
+    # pyopenjtalk初回辞書展開時に発生する外部ライブラリの警告を、Coreの遅延import検証から分離する。
     pyopenjtalk.g2p("辞書初期化")
     subprocess.run(
         [

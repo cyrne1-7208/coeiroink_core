@@ -1,4 +1,4 @@
-"""ESPnetの公開推論オブジェクトへ、出力互換な軽量化だけを適用する。"""
+"""ESPnetの公開推論オブジェクトに、出力の互換性を維持した軽量化だけを適用する。"""
 
 from functools import lru_cache
 from typing import Any
@@ -47,6 +47,22 @@ def optimize_espnet_for_inference(text_to_speech: Any) -> None:
     # VITS generatorは推論専用としてロードされるため、weight normの再パラメータ化を保持する必要がない。
     with torch.no_grad():
         _remove_legacy_weight_norm(tts.generator)
+
+    # 音声合成ではteacher forcingを行わないため、学習とteacher forcingだけに使うモジュールを常駐させない。
+    for name in (
+        "discriminator",
+        "generator_adv_loss",
+        "discriminator_adv_loss",
+        "feat_match_loss",
+        "mel_loss",
+        "kl_loss",
+    ):
+        if hasattr(tts, name):
+            setattr(tts, name, None)
+    if hasattr(tts.generator, "posterior_encoder"):
+        tts.generator.posterior_encoder = None
+    if hasattr(tts, "_cache"):
+        tts._cache = None
 
 
 __all__ = ["optimize_espnet_for_inference"]

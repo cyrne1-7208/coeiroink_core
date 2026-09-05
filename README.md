@@ -17,17 +17,17 @@ CoreとEngineを同じ親ディレクトリへ配置し、利用するバック�
 | Windows x64 | CUDA | `cuda` | 3.12 |
 | Windows x64 | DirectML | `directml` | 3.12 |
 
-OpenCLの利用には、GPUベンダーのOpenCL ICD、OpenCLヘッダー、loader、SQLite 3の開発ヘッダーが必要です。
+OpenCLの利用には、GPUベンダーのOpenCL ICD、OpenCLヘッダー、OpenCLローダー、SQLite 3の開発ヘッダーが必要です。
 
 ## セットアップ
 
-依存関係は`pyproject.toml`で定義し、`uv.lock`で固定しています。LinuxまたはWindowsのCPU環境では次を実行します。
+依存関係は`pyproject.toml`で定義し、`uv.lock`で固定しています。LinuxまたはWindowsのCPU環境では次のコマンドを実行します。
 
 ```bash
 uv sync --locked --extra cpu
 ```
 
-CUDAまたはOpenCLでは`cpu`を`cuda`または`opencl`へ置き換えてください。Windows DirectMLでは次を実行します。
+CUDAまたはOpenCLでは`cpu`を`cuda`または`opencl`へ置き換えてください。Windows DirectMLでは次のコマンドを実行します。
 
 ```powershell
 uv sync --python 3.12 --locked --extra directml
@@ -35,14 +35,18 @@ uv sync --python 3.12 --locked --extra directml
 
 各extraは相互排他的です。`speaker_info`には展開したMYCOEIROINKモデルのフォルダを配置します。旧形式（`config.yaml`の`version: 0.10.3`）とCOEIROINK v2形式のモデルに対応し、`speakerUuid`と`styleId`の組でモデルを識別します。
 
+## モデル保持とメモリ管理
+
+Coreの`AudioManager(max_loaded_models=...)`（Engineでは`--max-loaded-models`）で同時保持モデル数を指定します。既定値は1で、数値指定時は直近に使用したモデルから順に最大指定数まで保持し、`None`（Engineでは`all`）では全モデルを起動時に読み込みます。次のモデルを安全に読み込める空きメモリがない場合は、指定値にかかわらずLRUモデルを解放するため、全モデルがメモリに収まらない環境では起動後の保持数が全件未満になることがあります。
+
+実験的な`generator_only=True`では、VITSの学習専用モジュールへ実メモリを割り当てず推論に必要な重みだけを読み込むため、推論結果を変えない設計でモデルロード時のメモリ消費を抑えます。
+
 ## テスト
 
 ```bash
 uv sync --locked --extra cpu --group dev
 uv run --locked --extra cpu --group dev pytest -q
 ```
-
-モデルは要求時にロードされ、正常にロードされたモデルはプロセス内に保持されます。明示的なモデル数上限は設けず、利用可能なメモリを上限とします。
 
 ## ライセンス
 

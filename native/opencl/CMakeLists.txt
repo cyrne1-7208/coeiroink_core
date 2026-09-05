@@ -52,7 +52,7 @@ set(SQLITE3_LIB "${SQLite3_LIBRARIES}" CACHE FILEPATH "SQLite3 library" FORCE)
 set(BUILD_CORE_ONLY ON CACHE BOOL "Build only DLPrimitives core" FORCE)
 set(DLPRIM_STATIC_BUILD ON CACHE BOOL "Link DLPrimitives statically" FORCE)
 
-# 公開MIT実装を固定し、BatchSGEMMの未初期化値と行列積・畳み込みの入力長依存コンパイルを修正する。
+# 公開MIT実装を固定し、BatchSGEMMにおける値の未初期化問題と行列積・畳み込みの入力長依存コンパイルを修正する。
 FetchContent_Declare(
   pytorch_dlprim
   GIT_REPOSITORY https://github.com/artyom-beilis/pytorch_dlprim.git

@@ -1,10 +1,10 @@
-"""ESPnetのTTS importだけを成立させ、未提供のKaldiデータ入出力は明示的に拒否する。"""
+"""ESPnetのTTS推論に必要なインポート処理だけを成立させ、未提供のKaldiデータ入出力は明示的に拒否する。"""
 
 __version__ = "2.18.1+coeiroink.guard1"
 
 
 class UnsupportedKaldiDataIOError(RuntimeError):
-    """COEIROINK Serverが提供しないKaldi形式入出力をESPnetが要求した場合の例外。"""
+    """COEIROINK Coreが提供しないKaldi形式入出力をESPnetが要求した場合の例外。"""
 
 
 def __getattr__(name: str):
@@ -13,5 +13,5 @@ def __getattr__(name: str):
         raise AttributeError(name)
     raise UnsupportedKaldiDataIOError(
         "ESPnet requested kaldiio API "
-        f"{name!r}, but COEIROINK Server does not provide Kaldi ark/scp I/O"
+        f"{name!r}, but COEIROINK Core does not provide Kaldi ark/scp I/O"
     )

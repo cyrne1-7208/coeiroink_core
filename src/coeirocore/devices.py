@@ -157,7 +157,7 @@ def _normalize_index(value: int, name: str) -> int:
 
 @dataclass(frozen=True, slots=True)
 class DeviceSelection:
-    """検証済みデバイスと、Coreが利用する実体。"""
+    """検証済みのデバイス設定と、Coreが実行時に利用するデバイス実体を保持する。"""
 
     backend: DeviceBackend
     device_index: int
@@ -216,9 +216,7 @@ ModuleImporter = Callable[[str], Any]
 class DeviceResolver:
     """実行環境を検査し、明示されたバックエンドのデバイスを解決する。
 
-    `modules`または`module_overrides`にモックを渡せるため、GPUドライバのない
-    環境でも検出処理をテストできる。指定されていないモジュールだけが遅延import
-    される。
+    `modules`または`module_overrides`にモックを渡せるため、GPUドライバのない環境でも検出処理をテストできる。上書きされていないバックエンドモジュールは、必要になるまで遅延importされる。
     """
 
     def __init__(
@@ -551,7 +549,7 @@ class DeviceResolver:
                 f"OpenCL device_index {device_index} is out of range; "
                 f"device_count={len(devices)} on platform_index={platform_index}"
             )
-        # PyTorchの`ocl:N`は全プラットフォームのデバイスを平坦化した番号を使うため、公開APIのplatform/device指定から変換する。
+        # PyTorchの`ocl:N`は一次元の通し番号だけを受け取るため、OpenCLのplatform/device指定を全プラットフォーム通しの番号へ変換する。
         flat_device_index = (
             sum(
                 len(self._opencl_devices(platform))
@@ -691,7 +689,7 @@ def resolve_device(
     module_importer: ModuleImporter | None = None,
     platform_name: str | None = None,
 ) -> DeviceSelection:
-    """Resolverを明示しない場合の簡易API。"""
+    """DeviceResolverを直接指定せずにバックエンドのデバイスを解決する簡易API。"""
 
     if resolver is not None and any(
         value is not None
@@ -719,7 +717,7 @@ def get_supported_device_capabilities(
     module_importer: ModuleImporter | None = None,
     platform_name: str | None = None,
 ) -> dict[DeviceBackend, DeviceCapability]:
-    """全バックエンドのCapabilityを取得する簡易API。"""
+    """DeviceResolverを直接指定せずに、全バックエンドの利用可能性を取得する簡易API。"""
 
     if resolver is not None and any(
         value is not None

@@ -1,12 +1,14 @@
 """COEIROINKの波形トリムと出力リサンプリングを提供する。"""
 
 from functools import lru_cache
+from math import prod
 from typing import Any, Literal, cast
 
 import numpy as np
 
 Resampler = Literal["resampy", "soxr-vhq"]
 SUPPORTED_RESAMPLERS: tuple[Resampler, ...] = ("resampy", "soxr-vhq")
+_MAX_RMS_SQUARE_BYTES = 8 * 1024 * 1024
 
 
 def normalize_resampler(value: str) -> Resampler:
@@ -35,7 +37,7 @@ def _load_soxr() -> Any:
 
 
 def ensure_resampler_available(resampler: str) -> Resampler:
-    """サーバー起動時に明示選択された実装を検証し、暗黙の代替動作を防ぐ。"""
+    """初期化時に指定されたリサンプラーの利用可能性を検証し、暗黙の代替動作を防ぐ。"""
 
     normalized = normalize_resampler(resampler)
     if normalized == "soxr-vhq":
@@ -66,7 +68,20 @@ def detect_non_silent_range(
         window_shape=frame_length,
         axis=-1,
     )[..., ::hop_length, :]
-    power = np.mean(np.square(frames, dtype=np.float32), axis=-1)
+    # sliding_window_view自体はコピーしないが、全フレームを一括で二乗すると長尺音声で巨大な一時配列になるため、二乗配列を約8MiB以下に分割する。
+    leading_values = prod(frames.shape[:-2])
+    bytes_per_frame = max(
+        1,
+        leading_values * frame_length * np.dtype(np.float32).itemsize,
+    )
+    frames_per_chunk = max(1, _MAX_RMS_SQUARE_BYTES // bytes_per_frame)
+    power = np.empty(frames.shape[:-1], dtype=np.float32)
+    for start in range(0, frames.shape[-2], frames_per_chunk):
+        stop = min(start + frames_per_chunk, frames.shape[-2])
+        frame_chunk = frames[..., start:stop, :]
+        power[..., start:stop] = np.mean(
+            np.square(frame_chunk, dtype=np.float32), axis=-1
+        )
     rms = np.sqrt(power)
 
     magnitude = np.abs(rms)
@@ -127,7 +142,7 @@ def resample_waveform(
             quality="VHQ",
         )
     )
-    # soxrは比率によって端数を切り上げるため、従来APIが返す長さへ末尾だけを揃える。
+    # soxrが変換比率の端数を切り上げた場合は、従来APIと出力サンプル数を一致させるため余剰の末尾だけを切り詰める。
     expected_samples = int(samples.size * output_sampling_rate / sampling_rate)
     if converted.size < expected_samples:
         raise RuntimeError(

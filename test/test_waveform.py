@@ -27,6 +27,24 @@ def test_trim_keeps_uniform_silence_for_legacy_compatibility() -> None:
     assert np.array_equal(trim_silence(wave), wave)
 
 
+def test_trim_squares_long_waveform_in_bounded_chunks() -> None:
+    wave = np.zeros(1_100_000, dtype=np.float32)
+    wave[500_000:600_000] = 1.0
+    original_square = np.square
+    chunk_sizes: list[int] = []
+
+    def track_square(values, *args, **kwargs):
+        chunk_sizes.append(values.size)
+        return original_square(values, *args, **kwargs)
+
+    with patch("coeirocore.waveform.np.square", side_effect=track_square):
+        detected = detect_non_silent_range(wave)
+
+    assert detected[0] < detected[1]
+    assert len(chunk_sizes) > 1
+    assert max(chunk_sizes) * np.dtype(np.float32).itemsize <= 8 * 1024 * 1024
+
+
 def test_default_resampler_preserves_resampy_configuration() -> None:
     wave = np.ones(32, dtype=np.float32)
     expected = np.arange(16, dtype=np.float32)

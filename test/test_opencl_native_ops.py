@@ -194,6 +194,17 @@ def test_float32_softplus_matches_cpu():
     _assert_same(expected, _to_cpu(actual))
 
 
+def test_float32_relu_matches_cpu():
+    values = torch.tensor([[-3.0, -0.0, 0.0], [2.5, -1.25, 8.0]], dtype=torch.float32).T
+
+    expected = torch.relu(values)
+    # 上流のAutograd用ReLUではなく、推論時に必要なPrivateUse1実装を直接検証する。
+    with torch.inference_mode():
+        actual = torch.relu(_to_ocl(values))
+
+    _assert_same(expected, _to_cpu(actual))
+
+
 def test_broadcast_boolean_masked_fill_matches_cpu():
     values = torch.arange(6, dtype=torch.float32).reshape(2, 3)
     mask = torch.tensor([[True], [False]])
@@ -280,7 +291,7 @@ def test_weight_norm_interface_dim_zero_matches_cpu():
     ids=("conv1d", "conv_transpose1d"),
 )
 def test_convolution_reuses_backend_across_dynamic_lengths(module):
-    """同じOpenCL畳み込みを異なる時間長で実行しても計算結果を維持する。"""
+    """同一のOpenCL畳み込みを異なる時間長で実行しても、計算結果がCPUと一致することを検証する。"""
 
     torch.manual_seed(4)
     cpu_module = copy.deepcopy(module)
