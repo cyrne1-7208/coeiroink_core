@@ -293,13 +293,6 @@ class DeviceResolver:
                 )
         return capabilities
 
-    def _module_override(self, backend: DeviceBackend) -> tuple[bool, Any]:
-        module_name = _MODULE_NAMES[backend]
-        for key in (module_name, backend.value, backend):
-            if key in self._module_overrides:
-                return True, self._module_overrides[key]
-        return False, None
-
     def _load_module(self, backend: DeviceBackend) -> Any:
         module_name = _MODULE_NAMES[backend]
         return self._load_named_module(module_name, backend, use_backend_alias=True)

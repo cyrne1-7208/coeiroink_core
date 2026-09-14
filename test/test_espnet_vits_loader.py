@@ -9,7 +9,10 @@ from coeirocore.espnet_vits_loader import _load_inference_state
 def test_load_inference_state_copies_checkpoint_storage(tmp_path: Path) -> None:
     source = torch.nn.Linear(3, 2)
     checkpoint = tmp_path / "model.pth"
-    torch.save(source.state_dict(), checkpoint)
+    # 全体チェックポイントに含まれる学習用の重みは、推論用モデルへ読み込まない。
+    torch.save(
+        {**source.state_dict(), "discriminator.weight": torch.ones(2)}, checkpoint
+    )
     expected = {name: value.clone() for name, value in source.state_dict().items()}
 
     destination = torch.nn.Linear(3, 2)
@@ -24,5 +27,5 @@ def test_load_inference_state_rejects_missing_weight(tmp_path: Path) -> None:
     checkpoint = tmp_path / "model.pth"
     torch.save({}, checkpoint)
 
-    with pytest.raises(RuntimeError, match="missing inference weights"):
+    with pytest.raises(RuntimeError, match="Missing key"):
         _load_inference_state(torch.nn.Linear(3, 2), checkpoint)

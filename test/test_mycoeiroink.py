@@ -662,6 +662,102 @@ def test_audio_manager_changes_only_internal_pause_when_requested(tmp_path: Path
     assert np.array_equal(wave, expected)
 
 
+def test_smoothing_text_encoding_uses_the_models_normalizer():
+    model = object.__new__(EspnetModel)
+    ids = np.array([1, 2, 3], dtype=np.int64)
+    model.tts_model = SimpleNamespace(
+        preprocess_fn=MagicMock(return_value={"text": ids})
+    )
+    model.token_id_converter = SimpleNamespace(
+        ids2tokens=MagicMock(return_value=["^", "a", "$"])
+    )
+    actual_ids, tokens = model.encode_text_with_tokens("ｱ")
+    assert actual_ids is ids and tokens == ["^", "a", "$"]
+    model.tts_model.preprocess_fn.assert_called_once_with("<dummy>", {"text": "ｱ"})
+    model.token_id_converter.ids2tokens.assert_called_once_with(ids)
+
+
+@pytest.mark.parametrize("text", [["^", "a", "$"], "あ"])
+def test_voice_smoothing_uses_one_prediction_and_leaves_raw_apis_unchanged(
+    tmp_path, monkeypatch, text
+):
+    speaker_info_dir = tmp_path / "speaker_info"
+    create_old_mycoeiroink_fixture(speaker_info_dir)
+    raw = np.full(3 * 512, 0.1, dtype=np.float32)
+    events = []
+
+    class FakeEspnetModel:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def set_speed_control_alpha(self, alpha):
+            pass
+
+        def tokens2ids(self, tokens):
+            return np.arange(len(tokens), dtype=np.int64)
+
+        def encode_text_with_tokens(self, text):
+            return np.arange(3, dtype=np.int64), ["^", "a", "$"]
+
+        def make_voice(self, text):
+            events.append("wave")
+            return raw
+
+        def make_voice_with_duration(self, text):
+            events.append("duration")
+            return PredictionResult(raw, [1, 1, 1])
+
+    def smooth(wave, tokens, duration_frames, *, sampling_rate, hop_length):
+        assert tokens == ["^", "a", "$"] and duration_frames == [1, 1, 1]
+        assert sampling_rate == 44100 and hop_length == 512
+        events.append("smooth")
+        return wave * 2
+
+    module = ModuleType("coeirocore.voice_smoothing")
+    module.smooth_voice = smooth
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    with (
+        patch("coeirocore.coeiro_manager.EspnetModel", FakeEspnetModel),
+        patch.object(AudioManager, "trim", side_effect=lambda wave: wave),
+        patch.object(
+            coeiro_manager,
+            "_replace_internal_pauses",
+            side_effect=AssertionError("pause was not requested"),
+        ),
+    ):
+        manager = AudioManager(speaker_info_dir=speaker_info_dir, voice_smoothing=True)
+        assert manager.voice_smoothing
+        np.testing.assert_array_equal(
+            manager.synthesis(text, STYLE_ID, volume_scale=0.5), raw
+        )
+        assert events == ["duration", "smooth"]
+        events.clear()
+        assert manager.predict(text, STYLE_ID) is raw
+        assert manager.predict_with_duration(text, STYLE_ID).wav is raw
+        assert events == ["wave", "duration"]
+
+
+def test_disabled_voice_smoothing_needs_no_optional_module(tmp_path, monkeypatch):
+    speaker_info_dir = tmp_path / "speaker_info"
+    create_old_mycoeiroink_fixture(speaker_info_dir)
+    monkeypatch.setitem(sys.modules, "coeirocore.voice_smoothing", None)
+    manager = AudioManager(speaker_info_dir=speaker_info_dir)
+    assert not manager.voice_smoothing
+    wave = np.ones(8, dtype=np.float32)
+    assert manager.smooth_voice(wave, [], [], hop_length=512) is wave
+
+
+def test_voice_smoothing_reports_the_original_failure(tmp_path):
+    speaker_info_dir = tmp_path / "speaker_info"
+    create_old_mycoeiroink_fixture(speaker_info_dir)
+    manager = AudioManager(speaker_info_dir=speaker_info_dir)
+    failure = RuntimeError("pitch analysis failed")
+    manager._voice_smoother = MagicMock(side_effect=failure)
+    with pytest.raises(coeiro_manager.SynthesisError) as error:
+        manager.smooth_voice(np.ones(512, dtype=np.float32), ["a"], [1], hop_length=512)
+    assert error.value.__cause__ is failure
+
+
 def test_audio_manager_rejects_pause_output_over_limit(tmp_path: Path):
     speaker_info_dir = tmp_path / "speaker_info"
     create_old_mycoeiroink_fixture(speaker_info_dir)

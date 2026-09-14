@@ -554,6 +554,11 @@ class EspnetModel:
     def tokens2ids(self, tokens: Iterable[str]) -> np.ndarray:
         return np.array(self.token_id_converter.tokens2ids(tokens), dtype=np.int64)
 
+    def encode_text_with_tokens(self, text: str) -> tuple[np.ndarray, list[str]]:
+        """モデル既定の正規化・G2Pを一度だけ行い、同じID列から補正用の音素列も取得する。"""
+        ids = self.tts_model.preprocess_fn("<dummy>", {"text": text})["text"]
+        return ids, self.token_id_converter.ids2tokens(ids)
+
     def _prepare_text(
         self,
         text: str | list[str] | torch.Tensor | np.ndarray,
@@ -615,7 +620,7 @@ class EspnetModel:
 
 
 class AudioManager:
-    """モデル選択・LRU保持・推論・後処理を一つのロック下で管理する。"""
+    """モデル保持と推論を共通のロックで管理し、推論後の波形処理を提供する。"""
 
     def __init__(
         self,
@@ -629,6 +634,7 @@ class AudioManager:
         resampler: str = "resampy",
         max_loaded_models: int | None = 1,
         generator_only: bool = False,
+        voice_smoothing: bool = False,
     ):
         if isinstance(fs, bool) or not isinstance(fs, int) or fs <= 0:
             raise ValueError("fs must be a positive integer")
@@ -640,6 +646,8 @@ class AudioManager:
             raise ValueError("max_loaded_models must be a positive integer or None")
         if not isinstance(generator_only, bool):
             raise TypeError("generator_only must be a boolean")
+        if not isinstance(voice_smoothing, bool):
+            raise TypeError("voice_smoothing must be a boolean")
         if cpu_num_threads is not None:
             if (
                 isinstance(cpu_num_threads, bool)
@@ -659,6 +667,27 @@ class AudioManager:
             device_index=device_index,
             opencl_platform_index=opencl_platform_index,
         )
+        self._voice_smoother = None
+        if voice_smoothing:
+            try:
+                if self.device_selection.backend in (
+                    DeviceBackend.CUDA,
+                    DeviceBackend.OPENCL,
+                ):
+                    from .voice_smoothing_gpu import GpuVoiceSmoother
+
+                    self._voice_smoother = GpuVoiceSmoother(self.device_selection)
+                else:
+                    from .voice_smoothing import smooth_voice
+
+                    self._voice_smoother = smooth_voice
+            except ModuleNotFoundError as error:
+                if error.name not in ("cupy", "parselmouth", "pyopencl", "scipy"):
+                    raise
+                raise RuntimeError(
+                    "voice smoothing dependency is missing from the selected backend "
+                    "extra"
+                ) from error
         self.meta_manager = MetaManager(speaker_info_dir=speaker_info_dir)
         self._loaded_models: dict[ModelKey, EspnetModel] = {}
         self._max_loaded_models = max_loaded_models
@@ -738,7 +767,6 @@ class AudioManager:
     ) -> EspnetModel:
         """ロード済みモデルは直近使用（MRU）を表す辞書末尾へ移し、未ロードモデルだけを新しく読み込む。"""
 
-        self._validate_speed_scale(speed_scale)
         resolved_speaker_uuid, model_paths = self.meta_manager.resolve_model_path(
             style_id=style_id,
             speaker_uuid=speaker_uuid,
@@ -901,6 +929,42 @@ class AudioManager:
                 return False
             return (resolved_speaker_uuid, style_id) in self._loaded_models
 
+    @property
+    def voice_smoothing(self) -> bool:
+        """明示的に有効化された場合だけ、合成時に継続長と追加解析を要求する。"""
+        return self._voice_smoother is not None
+
+    def smooth_voice(
+        self,
+        wave: np.ndarray,
+        tokens: list[str],
+        duration_frames: list[int],
+        *,
+        hop_length: int,
+    ) -> np.ndarray:
+        """未加工predictとは分離し、ネイティブ合成と互換合成で同じ補正を使う。"""
+        if self._voice_smoother is None:
+            return wave
+        smoothing_lock = (
+            self._synthesis_lock
+            if self.device_selection.backend
+            in (DeviceBackend.CUDA, DeviceBackend.OPENCL)
+            else nullcontext()
+        )
+        with smoothing_lock:
+            try:
+                return self._voice_smoother(
+                    wave,
+                    tokens,
+                    duration_frames,
+                    sampling_rate=self.fs,
+                    hop_length=hop_length,
+                )
+            except Exception as error:
+                raise SynthesisError(
+                    "Failed to smooth the synthesized voice"
+                ) from error
+
     def synthesis(
         self,
         text: str | list[str],
@@ -916,7 +980,7 @@ class AudioManager:
         pause_length: float | None = None,
         pause_length_scale: float = 1.0,
     ):
-        """モデル推論後に休止置換、トリム、音量、F0、前後無音、リサンプリングを既定の順序で適用する。"""
+        """推論後に任意の音声補正、休止置換、トリム、音量、F0、前後無音、リサンプリングを適用する。"""
 
         self._validate_speed_scale(speed_scale)
         self._validate_finite_scale("volume_scale", volume_scale, minimum=0)
@@ -948,10 +1012,18 @@ class AudioManager:
             )
             active_speaker_uuid = self._active_speaker_uuid()
             try:
-                model_input = text if isinstance(text, str) else model.tokens2ids(text)
-                # 読点休止がなければ継続長のCPU転送を省き、通常の推論経路を使用する。
-                duration_required = (
-                    pause_control_requested and isinstance(text, list) and "_" in text
+                if self.voice_smoothing and isinstance(text, str):
+                    model_input, tokens = model.encode_text_with_tokens(text)
+                else:
+                    tokens = text
+                    model_input = (
+                        tokens if isinstance(tokens, str) else model.tokens2ids(tokens)
+                    )
+                # 補正も休止長変更も不要なら、継続長をCPUへ取り出さず従来の経路を保つ。
+                duration_required = self.voice_smoothing or (
+                    pause_control_requested
+                    and isinstance(tokens, list)
+                    and "_" in tokens
                 )
                 if not duration_required:
                     wav = model.make_voice(model_input)
@@ -968,10 +1040,19 @@ class AudioManager:
             del model
 
         try:
-            if duration_frames is not None:
+            if self.voice_smoothing:
+                wav = self.smooth_voice(
+                    wav,
+                    tokens,
+                    duration_frames,
+                    hop_length=self.get_hop_length(
+                        style_id=style_id, speaker_uuid=active_speaker_uuid
+                    ),
+                )
+            if duration_frames is not None and pause_control_requested:
                 wav = _replace_internal_pauses(
                     wav,
-                    text,
+                    tokens,
                     duration_frames,
                     self.fs,
                     speed_scale,

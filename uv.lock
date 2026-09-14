@@ -33,7 +33,7 @@ conflicts = [[
 
 [[manifest.dependency-metadata]]
 name = "coeiroink-opencl"
-version = "0.1.3+coeiroink.1.7.3"
+version = "0.2.0+coeiroink.1.7.3"
 
 [[package]]
 name = "absl-py"
@@ -176,7 +176,7 @@ name = "click"
 version = "8.4.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "(sys_platform == 'win32' and extra == 'extra-10-coeirocore-cpu') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-cuda') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or (extra == 'extra-10-coeirocore-cpu' and extra == 'extra-10-coeirocore-cuda') or (extra == 'extra-10-coeirocore-cpu' and extra == 'extra-10-coeirocore-directml') or (extra == 'extra-10-coeirocore-cpu' and extra == 'extra-10-coeirocore-opencl') or (extra == 'extra-10-coeirocore-cuda' and extra == 'extra-10-coeirocore-directml') or (extra == 'extra-10-coeirocore-cuda' and extra == 'extra-10-coeirocore-opencl') or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-10-coeirocore-cpu' and extra == 'extra-10-coeirocore-cuda') or (extra == 'extra-10-coeirocore-cpu' and extra == 'extra-10-coeirocore-directml') or (extra == 'extra-10-coeirocore-cpu' and extra == 'extra-10-coeirocore-opencl') or (extra == 'extra-10-coeirocore-cuda' and extra == 'extra-10-coeirocore-directml') or (extra == 'extra-10-coeirocore-cuda' and extra == 'extra-10-coeirocore-opencl') or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/76/d4/81420972a676e8ffea40450d8c8c92943e7218a78fe9b64359836cc9876b/click-8.4.2.tar.gz", hash = "sha256:9a6cea6e60b17ebe0a44c5cc636d94f09bd66142c1cd7d8b4cd731c4917a15f6", size = 338000, upload-time = "2026-06-24T17:45:15.148Z" }
 wheels = [
@@ -194,10 +194,11 @@ wheels = [
 
 [[package]]
 name = "coeirocore"
-version = "0.1.3+coeiroink.1.7.3"
+version = "0.2.0+coeiroink.1.7.3"
 source = { editable = "." }
 dependencies = [
-    { name = "kaldiio" },
+    { name = "espnet-tts-frontend" },
+    { name = "jaconv" },
     { name = "librosa" },
     { name = "numba" },
     { name = "numpy" },
@@ -212,16 +213,21 @@ dependencies = [
 [package.optional-dependencies]
 cpu = [
     { name = "espnet" },
+    { name = "praat-parselmouth" },
+    { name = "scipy" },
     { name = "torch", version = "2.10.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" } },
     { name = "torchaudio", version = "2.10.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" } },
 ]
 cuda = [
+    { name = "cupy-cuda12x" },
     { name = "espnet" },
     { name = "torch", version = "2.10.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" } },
     { name = "torchaudio", version = "2.10.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" } },
 ]
 directml = [
     { name = "espnet", marker = "sys_platform == 'win32'" },
+    { name = "praat-parselmouth", marker = "sys_platform == 'win32'" },
+    { name = "scipy", marker = "sys_platform == 'win32'" },
     { name = "torch", version = "2.4.1", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'win32'" },
     { name = "torch-directml", marker = "sys_platform == 'win32'" },
     { name = "torchaudio", version = "2.4.1", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'win32'" },
@@ -251,15 +257,19 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "coeiroink-opencl", marker = "sys_platform == 'linux' and extra == 'opencl'", directory = "native/opencl" },
-    { name = "espnet", marker = "sys_platform == 'linux' and extra == 'opencl'", git = "https://github.com/espnet/espnet.git?rev=v.202604-patch1" },
-    { name = "espnet", marker = "sys_platform == 'win32' and extra == 'directml'", git = "https://github.com/espnet/espnet.git?rev=v.202604-patch1" },
-    { name = "espnet", marker = "extra == 'cpu'", git = "https://github.com/espnet/espnet.git?rev=v.202604-patch1" },
-    { name = "espnet", marker = "extra == 'cuda'", git = "https://github.com/espnet/espnet.git?rev=v.202604-patch1" },
-    { name = "kaldiio", directory = "compat/kaldiio" },
+    { name = "cupy-cuda12x", marker = "extra == 'cuda'", specifier = "==14.2.0" },
+    { name = "espnet", marker = "sys_platform == 'linux' and extra == 'opencl'", git = "https://github.com/espnet/espnet.git?rev=v.202609" },
+    { name = "espnet", marker = "sys_platform == 'win32' and extra == 'directml'", git = "https://github.com/espnet/espnet.git?rev=v.202609" },
+    { name = "espnet", marker = "extra == 'cpu'", git = "https://github.com/espnet/espnet.git?rev=v.202609" },
+    { name = "espnet", marker = "extra == 'cuda'", git = "https://github.com/espnet/espnet.git?rev=v.202609" },
+    { name = "espnet-tts-frontend", specifier = ">=0.0.3,<1" },
+    { name = "jaconv", specifier = ">=0.4,<1" },
     { name = "librosa", specifier = ">=0.11,<1" },
     { name = "mako", marker = "sys_platform == 'linux' and extra == 'opencl'", specifier = ">=1.3.10,<2" },
     { name = "numba", specifier = ">=0.67,<0.68" },
     { name = "numpy", specifier = ">=2.3,<2.4" },
+    { name = "praat-parselmouth", marker = "sys_platform == 'win32' and extra == 'directml'", specifier = "==0.4.7" },
+    { name = "praat-parselmouth", marker = "extra == 'cpu'", specifier = "==0.4.7" },
     { name = "psutil", specifier = ">=7.2,<8" },
     { name = "pydantic", specifier = ">=2.13,<3" },
     { name = "pyopencl", marker = "sys_platform == 'linux' and extra == 'opencl'", specifier = ">=2026.1.2,<2027" },
@@ -267,6 +277,8 @@ requires-dist = [
     { name = "pyworld", specifier = ">=0.3.5,<0.4" },
     { name = "pyyaml", specifier = ">=6.0.1,<7" },
     { name = "resampy", specifier = ">=0.4.3,<1" },
+    { name = "scipy", marker = "sys_platform == 'win32' and extra == 'directml'", specifier = ">=1.16,<2" },
+    { name = "scipy", marker = "extra == 'cpu'", specifier = ">=1.16,<2" },
     { name = "soxr", marker = "extra == 'soxr'", specifier = "==1.1.0" },
     { name = "torch", marker = "sys_platform == 'linux' and extra == 'opencl'", specifier = "==2.10.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "coeirocore", extra = "opencl" } },
     { name = "torch", marker = "sys_platform == 'win32' and extra == 'directml'", specifier = "==2.4.1" },
@@ -290,7 +302,7 @@ dev = [
 
 [[package]]
 name = "coeiroink-opencl"
-version = "0.1.3+coeiroink.1.7.3"
+version = "0.2.0+coeiroink.1.7.3"
 source = { directory = "native/opencl" }
 
 [[package]]
@@ -343,6 +355,19 @@ version = "1.6.1"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e3/1e/2942a0d6d52240d439f44384a40c65d359d9ca70325b65b265c020113121/cuda_pathfinder-1.6.1-py3-none-any.whl", hash = "sha256:cc8ec4cb0881fa5bcbf96b6dd75d50e55352b74dd33d4f3d884e192e7c2b6ef8", size = 60238, upload-time = "2026-08-18T02:57:50.087Z" },
+]
+
+[[package]]
+name = "cupy-cuda12x"
+version = "14.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cuda-pathfinder" },
+    { name = "numpy" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7c/5b/65124de2dbaf2e85109f611a41947e39acd6dd938751c04b4c4d7bf6fc82/cupy_cuda12x-14.2.0-cp312-cp312-manylinux2014_x86_64.whl", hash = "sha256:f82141761f2c81905d49387464ae29438887956d99063381c93a1d5d1b7d32e8", size = 136111459, upload-time = "2026-08-20T02:40:04.909Z" },
+    { url = "https://files.pythonhosted.org/packages/e9/18/ddea819204701024bef7fa748730702245d803847c841b737723b94fd091/cupy_cuda12x-14.2.0-cp312-cp312-win_amd64.whl", hash = "sha256:c9571d3b5f2e65758137e210f7fb3c3b34767f0af6b6ca04035a244b6141ee12", size = 98780018, upload-time = "2026-08-20T02:40:09.465Z" },
 ]
 
 [[package]]
@@ -457,6 +482,12 @@ wheels = [
 ]
 
 [[package]]
+name = "distance"
+version = "0.1.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5c/1a/883e47df323437aefa0d0a92ccfb38895d9416bd0b56262c2e46a47767b8/Distance-0.1.3.tar.gz", hash = "sha256:60807584f5b6003f5c521aa73f39f51f631de3be5cccc5a1d67166fcbf0d4551", size = 180271, upload-time = "2013-11-21T00:14:34.152Z" }
+
+[[package]]
 name = "distributed"
 version = "2026.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -492,8 +523,8 @@ wheels = [
 
 [[package]]
 name = "espnet"
-version = "202604"
-source = { git = "https://github.com/espnet/espnet.git?rev=v.202604-patch1#cff0a07d22cf943d6f07ef5ca28e60d9357acad6" }
+version = "202609"
+source = { git = "https://github.com/espnet/espnet.git?rev=v.202609#1945ec2ed224fc3a93b27ccdd88bc873a224e903" }
 dependencies = [
     { name = "configargparse", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
     { name = "dask", extra = ["distributed"], marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
@@ -501,9 +532,10 @@ dependencies = [
     { name = "datasets", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
     { name = "einops", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
     { name = "espnet-model-zoo", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "filelock", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "huggingface-hub", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
     { name = "humanfriendly", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
     { name = "hydra-core", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
-    { name = "kaldiio", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
     { name = "lhotse", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
     { name = "librosa", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
     { name = "lightning", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
@@ -527,6 +559,22 @@ dependencies = [
     { name = "torchaudio", version = "2.10.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-cuda' and extra != 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or (extra == 'extra-10-coeirocore-cuda' and extra == 'extra-10-coeirocore-directml') or (extra == 'extra-10-coeirocore-cuda' and extra == 'extra-10-coeirocore-opencl') or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
     { name = "torchaudio", version = "2.10.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-cpu' and extra == 'extra-10-coeirocore-directml') or (extra == 'extra-10-coeirocore-cpu' and extra == 'extra-10-coeirocore-opencl') or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
     { name = "typeguard", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "wandb", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+]
+
+[[package]]
+name = "espnet-g2p-en"
+version = "2.1.0.post1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "distance" },
+    { name = "inflect" },
+    { name = "nltk" },
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4d/e3/42ccc010b6381ba25d0b0ecd846086e94bca84d776492ffea18cb7fb89db/espnet_g2p_en-2.1.0.post1.tar.gz", hash = "sha256:8e04d24a36e6e0a55a926e11a2fb4e9d70c6695aec80251287ddcb7183cbd336", size = 3119706, upload-time = "2026-09-02T11:49:00.793Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/03/900ec5b4f881c6d51abc89efddb14608edb3292cea42767fc02bb1621773/espnet_g2p_en-2.1.0.post1-py3-none-any.whl", hash = "sha256:7108dd7e5a542764ae024b8528f559ffe3da13d857d427921c06c9ccf2ac5f32", size = 3118002, upload-time = "2026-09-02T11:48:58.739Z" },
 ]
 
 [[package]]
@@ -545,6 +593,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d8/88/3b49dca3f981380746ea5c6e766360aac42b28466c9fc9a29096669d9e45/espnet_model_zoo-0.1.7.tar.gz", hash = "sha256:61d88a1898d7d6bfebeb51100f194fa7fc9b68f959913255ee5ccf68090465b0", size = 23068, upload-time = "2021-10-11T12:53:00.796Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/19/0e/b3340d59ded1ece54cca41d88f0be529598b43b3ec05b608dc03bd154a1a/espnet_model_zoo-0.1.7-py3-none-any.whl", hash = "sha256:8a228c44566f931e3113ec28c41f1e342be8b8897bad2fa99a6d51263e033743", size = 19610, upload-time = "2021-10-11T12:52:59.002Z" },
+]
+
+[[package]]
+name = "espnet-tts-frontend"
+version = "0.0.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "espnet-g2p-en" },
+    { name = "inflect" },
+    { name = "jaconv" },
+    { name = "pypinyin" },
+    { name = "unidecode" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e8/09/1a96793b920271f9cd923a8fc62f158ef9f593af2a01a373e084c9e95ce9/espnet_tts_frontend-0.0.4.tar.gz", hash = "sha256:76fc9e8a1d13e699f727b533d4d7587e2631ece76c14e99cce5354872f5dea10", size = 10635, upload-time = "2026-09-02T17:11:51.276Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/49/0f/67eda7429cd8228492918dcc566fa0501d2b8cdf8b6ee06b3ab7affce8af/espnet_tts_frontend-0.0.4-py3-none-any.whl", hash = "sha256:e8fe37c69cb27c08e69179348bb1e3546a24a9375168db230f4f9ed8b24a10fd", size = 11651, upload-time = "2026-09-02T17:11:49.977Z" },
 ]
 
 [[package]]
@@ -592,6 +656,18 @@ wheels = [
 [package.optional-dependencies]
 http = [
     { name = "aiohttp", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+]
+
+[[package]]
+name = "googleapis-common-protos"
+version = "1.75.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "protobuf", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8a/c5/4353a188e2c335aee33269e8b654af228278cca8e5f0b4b5f11e5d0e9adb/googleapis_common_protos-1.75.3.tar.gz", hash = "sha256:57c435ac2c68b108999b6db075d9053e4d7a936ba57b4a3d45667b1346f1738a", size = 153905, upload-time = "2026-09-03T22:31:21.869Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1a/7a/7d79170c6ce6f12e109df2b3879d6b934010cf4f99aea8de8b7e5408c174/googleapis_common_protos-1.75.3-py3-none-any.whl", hash = "sha256:a018d2bf098ca9fb6faa08d5bb780e2a2c2f73c566f069761331386c9596d3f2", size = 306984, upload-time = "2026-09-03T22:30:45.133Z" },
 ]
 
 [[package]]
@@ -712,6 +788,19 @@ wheels = [
 ]
 
 [[package]]
+name = "inflect"
+version = "7.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "more-itertools" },
+    { name = "typeguard" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/78/c6/943357d44a21fd995723d07ccaddd78023eace03c1846049a2645d4324a3/inflect-7.5.0.tar.gz", hash = "sha256:faf19801c3742ed5a05a8ce388e0d8fe1a07f8d095c82201eb904f5d27ad571f", size = 73751, upload-time = "2024-12-28T17:11:18.897Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8a/eb/427ed2b20a38a4ee29f24dbe4ae2dafab198674fe9a85e3d6adf9e5f5f41/inflect-7.5.0-py3-none-any.whl", hash = "sha256:2aea70e5e70c35d8350b8097396ec155ffd68def678c7ff97f51aa69c1d92344", size = 35197, upload-time = "2024-12-28T17:11:15.931Z" },
+]
+
+[[package]]
 name = "iniconfig"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -730,6 +819,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/53/c3/b2afa612aa0373f3e6bb190e6de35f293b307d1537f109e3e25dbfcdf212/intervaltree-3.2.1.tar.gz", hash = "sha256:f3f7e8baeb7dd75b9f7a6d33cf3ec10025984a8e66e3016d537e52130c73cfe2", size = 1231531, upload-time = "2025-12-24T04:25:06.773Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/83/7f/8a80a1c7c2ed05822b5a2b312d2995f30c533641f8198366ba2e26a7bb03/intervaltree-3.2.1-py2.py3-none-any.whl", hash = "sha256:a8a8381bbd35d48ceebee932c77ffc988492d22fb1d27d0ba1d74a7694eb8f0b", size = 25929, upload-time = "2025-12-24T04:25:05.298Z" },
+]
+
+[[package]]
+name = "jaconv"
+version = "0.5.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/91/0e/9fffaacda59bdfa479372c71d18d72968d2af5a36a5a2086b02a60124b98/jaconv-0.5.0.tar.gz", hash = "sha256:53f6f968276846716f0f37100a6d5c7308cfa1e0c714eb41287d5bb09345c40f", size = 21816, upload-time = "2026-02-08T11:15:57.07Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/da/9657d637bcacdbaf6a914ce504000da5639f9d945f8d3552a940f021d6c0/jaconv-0.5.0-py3-none-any.whl", hash = "sha256:2914114fe761ca49fc7089e25e6ad4a400c26f262ffce84e13b176916b71610a", size = 16831, upload-time = "2026-02-08T11:15:55.322Z" },
 ]
 
 [[package]]
@@ -752,11 +850,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/41/f2/d34e8b3a08a9cc79a
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7b/91/984aca2ec129e2757d1e4e3c81c3fcda9d0f85b74670a094cc443d9ee949/joblib-1.5.3-py3-none-any.whl", hash = "sha256:5fc3c5039fc5ca8c0276333a188bbd59d6b7ab37fe6632daa76bc7f9ec18e713", size = 309071, upload-time = "2025-12-15T08:41:44.973Z" },
 ]
-
-[[package]]
-name = "kaldiio"
-version = "2.18.1+coeiroink.guard1"
-source = { directory = "compat/kaldiio" }
 
 [[package]]
 name = "kiwisolver"
@@ -940,6 +1033,15 @@ wheels = [
 ]
 
 [[package]]
+name = "more-itertools"
+version = "11.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/de/1d/f4da6f02cdffe04d6362210b807146a26044c88d839208aec273bb0d9184/more_itertools-11.1.0.tar.gz", hash = "sha256:48e8f4d9e7e5878571ecf6f2b4e57634f93cd474cc8cfbd2376f2d11b396e30d", size = 145772, upload-time = "2026-05-22T14:14:29.909Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e8/3d/1087453384dbde46a8c7f9356eead2c58be8a7bf156bca40243377c85715/more_itertools-11.1.0-py3-none-any.whl", hash = "sha256:4b65538ae22f6fed0ce4874efd317463a7489796a0939fa66824dd542125a192", size = 72226, upload-time = "2026-05-22T14:14:28.824Z" },
+]
+
+[[package]]
 name = "mpmath"
 version = "1.4.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1009,11 +1111,11 @@ name = "nltk"
 version = "3.10.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "click", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
-    { name = "defusedxml", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
-    { name = "joblib", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
-    { name = "regex", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
-    { name = "tqdm", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "click" },
+    { name = "defusedxml" },
+    { name = "joblib" },
+    { name = "regex" },
+    { name = "tqdm" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/e0/e6/fe51d2bb1a3b446f59c5c8165999a9fee208bc346af90a7cbf7657bc0d75/nltk-3.10.3.tar.gz", hash = "sha256:bb9327a461c3811c2fa4900e03840401f2126adfb30c0072827c433bd2444ea4", size = 5137152, upload-time = "2026-08-12T23:46:37.258Z" }
 wheels = [
@@ -1205,6 +1307,87 @@ wheels = [
 ]
 
 [[package]]
+name = "opentelemetry-api"
+version = "1.44.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ee/8b/aa9e2d8b8dfa7c946f7dec5d1f8f6ba8eca062f43509a06bdb5ce93d26c0/opentelemetry_api-1.44.0.tar.gz", hash = "sha256:67647e5e9566edcf421166fdf022b3537f818635daa852b289e34604dc6fb33a", size = 72406, upload-time = "2026-07-16T15:25:32.678Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ca/6f/a04e900f465ff3221ccc395522503e2d10e79fa21f2723c8e177aae1e0d1/opentelemetry_api-1.44.0-py3-none-any.whl", hash = "sha256:94b98c893a91b88657eaac1e3ba89618cdb85be6918196705354f34728b2cdef", size = 60018, upload-time = "2026-07-16T15:25:11.657Z" },
+]
+
+[[package]]
+name = "opentelemetry-exporter-otlp-proto-common"
+version = "1.44.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-proto", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/61/09/4d717852c1cf3f854b76c7110a5d00883bc3c99288b9b0dbcbeb9e306eb6/opentelemetry_exporter_otlp_proto_common-1.44.0.tar.gz", hash = "sha256:dc87a5a5bc58f149a56d1547e4691588fa12994cdc3bc039a694ccb3375862ac", size = 20202, upload-time = "2026-07-16T15:25:37.658Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5e/71/65fd9d54c10b860f87c045ccee1264cab7011268895d3528818a29c1172a/opentelemetry_exporter_otlp_proto_common-1.44.0-py3-none-any.whl", hash = "sha256:9a9fe61bba73d802904bc989f1d6b4a7b1ee40f06c40e98d6f85af65aaebb694", size = 17045, upload-time = "2026-07-16T15:25:18.201Z" },
+]
+
+[[package]]
+name = "opentelemetry-exporter-otlp-proto-http"
+version = "1.44.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "googleapis-common-protos", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "opentelemetry-api", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "opentelemetry-exporter-otlp-proto-common", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "opentelemetry-proto", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "opentelemetry-sdk", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "requests", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "typing-extensions", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1a/87/95e2a5aaa795b4e2260d74e16df2d5541deb2ea9de010bcd615f4dee2654/opentelemetry_exporter_otlp_proto_http-1.44.0.tar.gz", hash = "sha256:c633d7270ad6b57cd4cfbe8b0007a9e2e7c0cb50bd6c50fe2a7b245f721a09d8", size = 25806, upload-time = "2026-07-16T15:25:39.162Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cd/d0/fdeb1a98d8d3a6205f5f297c51b4a9bfe65126ab60339669bbe3dd54c2e2/opentelemetry_exporter_otlp_proto_http-1.44.0-py3-none-any.whl", hash = "sha256:838592fce774c1c8bb7b9a0a7facbfa82e17be5a8a4e94cef10cb84ae026bae3", size = 21850, upload-time = "2026-07-16T15:25:20.006Z" },
+]
+
+[[package]]
+name = "opentelemetry-proto"
+version = "1.44.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "protobuf", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/64/01/40ac4ae9a149263cc52c2cee200ddd80cb6d8db1a4610abf8eabce0fe771/opentelemetry_proto-1.44.0.tar.gz", hash = "sha256:c547a79c2f8c0c515d31509154682e5921c7cfd5ca67b70e1f9266e2c3e103f3", size = 46488, upload-time = "2026-07-16T15:25:45.34Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d1/7c/8be563d68e93bbefa5c8affb82ddcff91b3ad858ce49957ba7b16fd3e0ab/opentelemetry_proto-1.44.0-py3-none-any.whl", hash = "sha256:898b155a0e1557afd867478fb6158e8122a46329ca0bb8dc53cc55e98f017f56", size = 72483, upload-time = "2026-07-16T15:25:28.429Z" },
+]
+
+[[package]]
+name = "opentelemetry-sdk"
+version = "1.44.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "opentelemetry-semantic-conventions", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "typing-extensions", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5d/77/a6592cbc7c8d9bcc9d6757a9df45e04a7c585e3e6e7a13456da522b21109/opentelemetry_sdk-1.44.0.tar.gz", hash = "sha256:cebe7f65dc12f26ead75c6064de12fd2a9052e5060c0272d402cfa203aae123b", size = 208624, upload-time = "2026-07-16T15:25:46.078Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e7/23/ff077e61886ee020a17ce9c8b6fa11c601c8d8345b09ea24f605445df62a/opentelemetry_sdk-1.44.0-py3-none-any.whl", hash = "sha256:df081c4c6bcfdb1211e3e86140376792643128a25f8d72d1d27675936e7e96ad", size = 137221, upload-time = "2026-07-16T15:25:29.534Z" },
+]
+
+[[package]]
+name = "opentelemetry-semantic-conventions"
+version = "0.65b0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "typing-extensions", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8f/73/0cbdebcb4cf545fdd328da14f5137e37d0770c3f26185e478b0d15d94f50/opentelemetry_semantic_conventions-0.65b0.tar.gz", hash = "sha256:f9b2b81e9d5b64f11bc952075e7e9c7fb0aab075c7fd1c46d597f1b919852d60", size = 148774, upload-time = "2026-07-16T15:25:46.902Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a6/0e/49df70d9b81fb5cbae4bbf2a49d865b09bcbcbc4eb53f5851b1027738d78/opentelemetry_semantic_conventions-0.65b0-py3-none-any.whl", hash = "sha256:1cacde7b0ad306f84c5ef08c3dbe1bbaf20165bba6f8bff43b670e555a086bcb", size = 204645, upload-time = "2026-07-16T15:25:30.688Z" },
+]
+
+[[package]]
 name = "packaging"
 version = "26.3"
 source = { registry = "https://pypi.org/simple" }
@@ -1293,6 +1476,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/83/43/85ef45e8b36c6a48546af7b266592dc32d7f67837a6514d111bced6d7d75/pooch-1.9.0.tar.gz", hash = "sha256:de46729579b9857ffd3e741987a2f6d5e0e03219892c167c6578c0091fb511ed", size = 61788, upload-time = "2026-01-30T19:15:09.649Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2a/2d/d4bf65e47cea8ff2c794a600c4fd1273a7902f268757c531e0ee9f18aa58/pooch-1.9.0-py3-none-any.whl", hash = "sha256:f265597baa9f760d25ceb29d0beb8186c243d6607b0f60b83ecf14078dbc703b", size = 67175, upload-time = "2026-01-30T19:15:08.36Z" },
+]
+
+[[package]]
+name = "praat-parselmouth"
+version = "0.4.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", marker = "(sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl') or (extra == 'extra-10-coeirocore-cuda' and extra == 'extra-10-coeirocore-directml') or (extra == 'extra-10-coeirocore-cuda' and extra == 'extra-10-coeirocore-opencl')" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4f/28/2c1204fe3e7aeb6942051ff6776e31da52c7ab5b7df2ca438f371bd60d8a/praat_parselmouth-0.4.7.tar.gz", hash = "sha256:6dd81d246ce1eef5fd93d8cbdaf1bef61ca40ef1d2fc12aa23996a28071181e6", size = 22526491, upload-time = "2025-11-27T20:08:58.276Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9f/5f/e4495c8ac6ed26a1f16a34269c12579532e747b4ac5db57123093904f2ec/praat_parselmouth-0.4.7-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:6b5fbfab5b3cd4f6146e6145559d5d7c231384d88f942e0c8c0e791058aa61a5", size = 10749363, upload-time = "2025-11-27T20:02:23.082Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/df/a358062226918326825b7af95850ce561a22c6dcdc2cac0665a8efc6a2d9/praat_parselmouth-0.4.7-cp312-cp312-win_amd64.whl", hash = "sha256:7cfd6941a4e8dd1d8398260f1269a831b84e9f230b03c569993e144a20704f99", size = 8958177, upload-time = "2025-11-27T20:02:29.308Z" },
 ]
 
 [[package]]
@@ -1421,6 +1617,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f3/91/9c6ee907786a473bf81c5f53cf703ba0957b23ab84c264080fb5a450416f/pyparsing-3.3.2.tar.gz", hash = "sha256:c777f4d763f140633dcb6d8a3eda953bf7a214dc4eff598413c070bcdc117cbc", size = 6851574, upload-time = "2026-01-21T03:57:59.36Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl", hash = "sha256:850ba148bd908d7e2411587e247a1e4f0327839c40e2e5e6d05a007ecc69911d", size = 122781, upload-time = "2026-01-21T03:57:55.912Z" },
+]
+
+[[package]]
+name = "pypinyin"
+version = "0.55.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b4/a4/784cf98c09e0dc22776b0d7d8a4a5b761218bcae4608c2416ce1e167c8af/pypinyin-0.55.0.tar.gz", hash = "sha256:b5711b3a0c6f76e67408ec6b2e3c4987a3a806b7c528076e7c7b86fcf0eaa66b", size = 839836, upload-time = "2025-07-20T12:01:50.657Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b9/7b/4cabc76fcc21c3c7d5c671d8783984d30ac9d3bb387c4ba784fca3cdfa3a/pypinyin-0.55.0-py2.py3-none-any.whl", hash = "sha256:d53b1e8ad2cdb815fb2cb604ed3123372f5a28c6f447571244aca36fc62a286f", size = 840203, upload-time = "2025-07-20T12:01:48.535Z" },
 ]
 
 [[package]]
@@ -2003,7 +2208,7 @@ name = "typeguard"
 version = "4.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/b4/de/4420db493fa8fc0856d5e5c1b159c63a323d2de2317babe36b01568928e8/typeguard-4.6.0.tar.gz", hash = "sha256:e7414f09111317de3e335de92cd397c5c0ca00b1cc1676de12e1d444a79b3f21", size = 82330, upload-time = "2026-07-26T08:40:23.207Z" }
 wheels = [
@@ -2041,12 +2246,46 @@ wheels = [
 ]
 
 [[package]]
+name = "unidecode"
+version = "1.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/7d/a8a765761bbc0c836e397a2e48d498305a865b70a8600fd7a942e85dcf63/Unidecode-1.4.0.tar.gz", hash = "sha256:ce35985008338b676573023acc382d62c264f307c8f7963733405add37ea2b23", size = 200149, upload-time = "2025-04-24T08:45:03.798Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8f/b7/559f59d57d18b44c6d1250d2eeaa676e028b9c527431f5d0736478a73ba1/Unidecode-1.4.0-py3-none-any.whl", hash = "sha256:c3c7606c27503ad8d501270406e345ddb480a7b5f38827eafe4fa82a137f0021", size = 235837, upload-time = "2025-04-24T08:45:01.609Z" },
+]
+
+[[package]]
 name = "urllib3"
 version = "2.7.0"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/53/0c/06f8b233b8fd13b9e5ee11424ef85419ba0d8ba0b3138bf360be2ff56953/urllib3-2.7.0.tar.gz", hash = "sha256:231e0ec3b63ceb14667c67be60f2f2c40a518cb38b03af60abc813da26505f4c", size = 433602, upload-time = "2026-05-07T16:13:18.596Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7f/3e/5db95bcf282c52709639744ca2a8b149baccf648e39c8cc87553df9eae0c/urllib3-2.7.0-py3-none-any.whl", hash = "sha256:9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897", size = 131087, upload-time = "2026-05-07T16:13:17.151Z" },
+]
+
+[[package]]
+name = "wandb"
+version = "0.30.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "click", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "opentelemetry-api", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "opentelemetry-exporter-otlp-proto-http", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "opentelemetry-sdk", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "packaging", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "platformdirs", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "protobuf", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "pydantic", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "pyyaml", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "requests", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "typing-extensions", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+    { name = "xxhash", marker = "(sys_platform != 'win32' and extra != 'extra-10-coeirocore-directml') or (sys_platform == 'win32' and extra == 'extra-10-coeirocore-directml') or extra == 'extra-10-coeirocore-cpu' or extra == 'extra-10-coeirocore-cuda' or (extra == 'extra-10-coeirocore-directml' and extra == 'extra-10-coeirocore-opencl')" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/86/10/c4481d12b26f57606d1ef7c8d56825ad6af769cbb8cd29ee501ac6bbbc2d/wandb-0.30.0.tar.gz", hash = "sha256:f2d7de3c2019204f493f3f9e9166071c2be36f74140af2e1409b4de0fd84c454", size = 40862616, upload-time = "2026-09-09T00:16:41.551Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/26/13/775a4c7d87fb771a2ddb104ce7c5c5d393e48720e448b4e8c43aac7cd4ce/wandb-0.30.0-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:bad9412f137d02303bf178513e0109f4fed37a6c817604085a1a4151047d8790", size = 26105520, upload-time = "2026-09-09T00:16:28.146Z" },
+    { url = "https://files.pythonhosted.org/packages/05/77/5eddd97f33f581f4d167f41bbf4736f2a51ad7271b9c9ed5dceb6994cbd6/wandb-0.30.0-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:e7dc3b0b1567f6a121d8f7a58131b5d085861139a653ef8bed1569c9be796721", size = 26320243, upload-time = "2026-09-09T00:16:32.878Z" },
+    { url = "https://files.pythonhosted.org/packages/2f/e7/821c363f0a74aa9826ca058d3f6f8f8e41697001a0a869b5ccc7eca5b0e4/wandb-0.30.0-py3-none-win_amd64.whl", hash = "sha256:217bde0a7c49482f26166a1a7bee760bb9e2658135b2d45a33aacabffec68817", size = 24083356, upload-time = "2026-09-09T00:16:36.766Z" },
 ]
 
 [[package]]

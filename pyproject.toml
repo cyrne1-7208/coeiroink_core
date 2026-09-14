@@ -7,16 +7,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "coeirocore"
-version = "0.1.3+coeiroink.1.7.3"
+version = "0.2.0+coeiroink.1.7.3"
 description = "COEIROINK Core synthesis library"
 requires-python = ">=3.12,<3.13"
 license = { file = "LICENSE" }
 authors = [{ name = "shirowanisan" }]
 urls = { Homepage = "https://github.com/cyrne1-7208/coeiroink_core" }
 dependencies = [
-    # ESPnetの依存名をローカルガードへ確実に解決させるため、推移依存にせず明示する。
-    "kaldiio==2.18.1+coeiroink.guard1",
     "librosa>=0.11,<1",
+    # 既存MYCOEIROINKモデルのESPnet jaconvテキストクリーナーを利用する。
+    "jaconv>=0.4,<1",
+    # ESPnetのjaconvクリーナーが共通importするtacotron_cleanerを提供する。
+    "espnet-tts-frontend>=0.0.3,<1",
     "numba>=0.67,<0.68",
     "numpy>=2.3,<2.4",
     "pyopenjtalk @ git+https://github.com/r9y9/pyopenjtalk.git@v0.4.1",
@@ -30,26 +32,33 @@ dependencies = [
 [project.optional-dependencies]
 # PyTorch wheelの種類が異なるため、実行環境ではbackend extraを必ず1つだけ選択する。
 cpu = [
-    "espnet @ git+https://github.com/espnet/espnet.git@v.202604-patch1",
+    "espnet @ git+https://github.com/espnet/espnet.git@v.202609",
+    # CPU補正の周期検出結果を再現するため版を固定する。
+    "praat-parselmouth==0.4.7",
+    "scipy>=1.16,<2",
     "torch==2.10.0",
     "torchaudio==2.10.0",
 ]
 cuda = [
-    "espnet @ git+https://github.com/espnet/espnet.git@v.202604-patch1",
+    "espnet @ git+https://github.com/espnet/espnet.git@v.202609",
     "torch==2.10.0",
     "torchaudio==2.10.0",
+    # CUDA版の音声補正も同じGPU上で実行するためのCUDA 12系バインディング。
+    "cupy-cuda12x==14.2.0",
 ]
 directml = [
     # torch-directmlのWindows wheelに合わせ、DirectMLではTorch 2.4.1を使用する。
-    "espnet @ git+https://github.com/espnet/espnet.git@v.202604-patch1 ; sys_platform == 'win32'",
+    "espnet @ git+https://github.com/espnet/espnet.git@v.202609 ; sys_platform == 'win32'",
+    "praat-parselmouth==0.4.7; sys_platform == 'win32'",
+    "scipy>=1.16,<2; sys_platform == 'win32'",
     "torch==2.4.1; sys_platform == 'win32'",
     "torchaudio==2.4.1; sys_platform == 'win32'",
     "torch-directml==0.2.5.dev240914; sys_platform == 'win32'",
 ]
 opencl = [
     # OpenCLはLinuxでCUDAを利用できないGPU向けのPrivateUse1 backendとして個別に導入する。
-    "coeiroink-opencl==0.1.3+coeiroink.1.7.3; sys_platform == 'linux'",
-    "espnet @ git+https://github.com/espnet/espnet.git@v.202604-patch1 ; sys_platform == 'linux'",
+    "coeiroink-opencl==0.2.0+coeiroink.1.7.3; sys_platform == 'linux'",
+    "espnet @ git+https://github.com/espnet/espnet.git@v.202609 ; sys_platform == 'linux'",
     # native packageの依存メタデータはTorch ABI解決のため空にしているので、Python bindingとその実行時依存は親extraで宣言する。
     "mako>=1.3.10,<2; sys_platform == 'linux'",
     "pyopencl>=2026.1.2,<2027; sys_platform == 'linux'",
@@ -60,7 +69,6 @@ soxr = [
     # 高品質リサンプリングを明示的に選択した環境にのみ導入する。
     "soxr==1.1.0",
 ]
-
 [dependency-groups]
 dev = [
     "pytest>=8.3,<9",
@@ -107,8 +115,6 @@ environments = [
 ]
 
 [tool.uv.sources]
-# ESPnetがTTSでも必須化するkaldiioは、未使用のKaldi I/Oを明示的に拒否するローカルガードへ置き換える。
-kaldiio = { path = "compat/kaldiio" }
 # OpenCL拡張は公開リポジトリへ含めるローカルnative packageから再現可能にビルドする。
 coeiroink-opencl = [
     { path = "native/opencl", extra = "opencl" },
@@ -133,7 +139,7 @@ coeiroink-opencl = [
 
 [[tool.uv.dependency-metadata]]
 name = "coeiroink-opencl"
-version = "0.1.3+coeiroink.1.7.3"
+version = "0.2.0+coeiroink.1.7.3"
 # backend別Torchは親extraで固定済みなので、ローカルpackageの重複要件をlock解決へ持ち込まない。
 requires-dist = []
 
@@ -152,3 +158,6 @@ license-files = ["LICENSE", "licenses/GPL-3.0.txt"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+coeirocore = ["voice_smoothing_kernels/*.cl", "voice_smoothing_kernels/*.h"]

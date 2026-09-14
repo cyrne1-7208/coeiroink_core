@@ -33,13 +33,23 @@ CUDAまたはOpenCLでは`cpu`を`cuda`または`opencl`へ置き換えてくだ
 uv sync --python 3.12 --locked --extra directml
 ```
 
-各extraは相互排他的です。`speaker_info`には展開したMYCOEIROINKモデルのフォルダを配置します。旧形式（`config.yaml`の`version: 0.10.3`）とCOEIROINK v2形式のモデルに対応し、`speakerUuid`と`styleId`の組でモデルを識別します。
+バックエンド用extraは相互排他的です。`speaker_info`には展開したMYCOEIROINKモデルのフォルダを配置します。旧形式（`config.yaml`の`version: 0.10.3`）とCOEIROINK v2形式のモデルに対応し、`speakerUuid`と`styleId`の組でモデルを識別します。
 
 ## モデル保持とメモリ管理
 
 Coreの`AudioManager(max_loaded_models=...)`（Engineでは`--max-loaded-models`）で同時保持モデル数を指定します。既定値は1で、数値指定時は直近に使用したモデルから順に最大指定数まで保持し、`None`（Engineでは`all`）では全モデルを起動時に読み込みます。次のモデルを安全に読み込める空きメモリがない場合は、指定値にかかわらずLRUモデルを解放するため、全モデルがメモリに収まらない環境では起動後の保持数が全件未満になることがあります。
 
 実験的な`generator_only=True`では、VITSの学習専用モジュールへ実メモリを割り当てず推論に必要な重みだけを読み込むため、推論結果を変えない設計でモデルロード時のメモリ消費を抑えます。
+
+## 実験的な音声補正
+
+母音内の音色の細かな揺れと周期間隔の乱れを弱める後処理を、`AudioManager(voice_smoothing=True, ...)`で有効化できます。既定では無効で、必要な依存は各バックエンド用extraに含まれます。Engineからは`--experimental voice-smoothing`で有効化します。
+
+音色の平滑化は時間幅15ms（Gaussianの標準偏差）・強さ0.85で、弱い周期間隔補正も併用します。母音の立ち上がり100msは補正対象から外し、音素の時刻と波形全体の平均音量を保ちます。`synthesis`にのみ適用し、`predict`と`predict_with_duration`は未加工の波形を返します。CPUとDirectMLではParselmouthとSciPy、CUDAとOpenCLでは選択したGPU上の専用実装で補正します。
+
+Engineは解析済みの音素列をCoreへ渡します。Coreへ生の文字列を直接渡す場合は、補正の有無にかかわらず、モデルが指定するESPnetのTTS前処理依存も必要です。
+
+CPUとDirectMLの周期検出には、[Parselmouth](https://github.com/YannickJadoul/Parselmouth)（`praat-parselmouth`、GPL-3.0-or-later）を利用します。選択した任意依存にも、それぞれのライセンスが適用されます。
 
 ## テスト
 
