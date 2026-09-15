@@ -36,7 +36,7 @@ def _prepare_spans(
     sampling_rate: int,
     hop_length: int,
 ) -> list[tuple[int, int]]:
-    """CPU/GPU補正が同じ入力条件と対象区間を使うように検証する。"""
+    """CPUとGPUで共通の入力条件を検証し、補正する区間を返す。"""
 
     if sampling_rate <= 0 or hop_length <= 0:
         raise ValueError("sampling rate and hop length must be positive")

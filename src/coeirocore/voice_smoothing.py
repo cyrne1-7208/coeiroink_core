@@ -208,6 +208,6 @@ def smooth_voice(
     )
     if not np.isfinite(result_energy) or result_energy <= 0:
         raise RuntimeError("voice smoothing produced an invalid waveform")
-    # APIのvolumeScaleとは独立に、補正による平均音量の変化だけを戻す。
+    # APIのvolumeScaleとは別に、補正前の平均音量を保つ。
     result *= np.sqrt(original_energy / result_energy)
     return result.astype(wave.dtype, copy=False)

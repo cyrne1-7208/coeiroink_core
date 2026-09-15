@@ -124,7 +124,7 @@ def _resolve_inference_device(
     device_index: int,
     opencl_platform_index: int,
 ) -> DeviceSelection:
-    """新しいdevice指定と旧use_gpu指定を一か所で整合させる。"""
+    """新しいdevice指定と互換用のuse_gpu指定を検証し、一つの設定に変換する。"""
 
     if isinstance(device, DeviceSelection):
         if use_gpu is not None or device_index != 0 or opencl_platform_index != 0:
@@ -179,7 +179,7 @@ def _replace_internal_pauses(
             raise SynthesisError("ESPnet returned a negative token duration")
         token_samples = frame_count * samples_per_frame
         if token in _PROSODY_BOUNDARY_MARKERS:
-            # ESPnetが`[`、`]`、`#`にも割り当てた継続長を後続区間へ合算し、発音しない境界記号を除いても波形全体との対応を保つ。
+            # ESPnetが境界記号にも割り当てた長さを次の区間へ加え、記号を除いた後も波形との対応を保つ。
             pending_samples += token_samples
             continue
         if token == "_":
@@ -217,7 +217,7 @@ def _replace_internal_pauses(
 
 
 class MetaManager:
-    """MYCOEIROINKのメタデータとモデル配置を起動時に検証し、話者UUIDとスタイルIDの索引を構築する。"""
+    """MYCOEIROINKのメタデータとモデル配置を検証し、話者UUIDとスタイルIDの対応表を作る。"""
 
     def __init__(self, speaker_info_dir: str | Path = Path("speaker_info")):
         self.speaker_info_dir = Path(speaker_info_dir).expanduser().resolve()
@@ -341,7 +341,7 @@ class MetaManager:
     def _load_speaker(
         self, speaker_path: Path, speaker_uuids: set[str]
     ) -> dict[str, object]:
-        """1話者を検証し、モデル索引へ登録する。"""
+        """1話者を検証し、モデルの対応表へ登録する。"""
 
         metas_path, metadata = self._read_metadata(speaker_path)
         speaker_uuid = metadata.get("speakerUuid")
@@ -380,7 +380,7 @@ class MetaManager:
         }
 
     def _finalize_indexes(self) -> None:
-        """公開順を確定し、一意な従来形式スタイルIDの索引を作る。"""
+        """公開順を決め、重複しない従来形式のスタイルIDを対応表へ登録する。"""
 
         self.speaker_infos = sorted(
             self.speaker_infos,
@@ -504,7 +504,7 @@ class EspnetModel:
                 noise_scale_dur=0.333,
             )
         optimize_espnet_for_inference(self.tts_model)
-        # alpha非対応モデルへ推論引数を誤って渡さないよう、モデル読込時に対応状況を確定する。
+        # alpha非対応モデルへ推論引数を渡さないよう、モデル読み込み時に対応状況を確認する。
         self._supports_speed_control = "alpha" in self.tts_model.decode_conf
         if not self._supports_speed_control and speed_scale != 1.0:
             raise ValueError("the loaded ESPnet model does not support speed control")
@@ -519,11 +519,11 @@ class EspnetModel:
 
     @cached_property
     def resident_bytes(self) -> int:
-        """LRUのデバイス容量判定に使う常駐tensorの概算値を返す。"""
+        """メモリ判定に使う、モデルの常駐テンソル量の概算値を返す。"""
 
         model = self.tts_model.model
         tensors = [*model.parameters(), *model.buffers()]
-        # 旧ESPnetの相対位置埋め込みはbuffer登録されていないため、OpenCLの常駐量へ明示的に加える。
+        # 旧ESPnetの相対位置埋め込みはバッファとして登録されていないため、OpenCLの使用量へ明示的に加える。
         tensors.extend(
             position
             for module in model.modules()
@@ -539,7 +539,7 @@ class EspnetModel:
         return resident_bytes
 
     def set_speed_control_alpha(self, speed_control_alpha: float) -> None:
-        """重みを再読込せず、次回推論の音素継続長倍率（話速の逆数）を変更する。"""
+        """重みを再読み込みせず、次回推論の音素継続長倍率（話速の逆数）を変更する。"""
         if not math.isfinite(speed_control_alpha) or speed_control_alpha <= 0:
             raise ValueError("speed_control_alpha must be a positive finite number")
         if not self._supports_speed_control and speed_control_alpha != 1.0:
@@ -563,7 +563,7 @@ class EspnetModel:
         self,
         text: str | list[str] | torch.Tensor | np.ndarray,
     ) -> str | torch.Tensor | np.ndarray:
-        """公開APIのトークン列をCore境界で一度だけIDへ変換する。"""
+        """公開APIから受け取ったトークン列を、一度だけIDへ変換する。"""
         if isinstance(text, list):
             return self.tokens2ids(text)
         return text
@@ -591,7 +591,7 @@ class EspnetModel:
 
     @staticmethod
     def _waveform(output: dict) -> np.ndarray:
-        """継続長データを実体化せず、波形だけを取り出す。"""
+        """継続長をリストへ変換せず、波形だけを取り出す。"""
         return output["wav"].detach().view(-1).cpu().numpy()
 
     def make_voice(
@@ -620,7 +620,7 @@ class EspnetModel:
 
 
 class AudioManager:
-    """モデル保持と推論を共通のロックで管理し、推論後の波形処理を提供する。"""
+    """モデルの保持と推論を同じロックで管理し、生成した波形の後処理も行う。"""
 
     def __init__(
         self,
@@ -765,7 +765,7 @@ class AudioManager:
         speaker_uuid: str | None = None,
         force_reload: bool = False,
     ) -> EspnetModel:
-        """ロード済みモデルは直近使用（MRU）を表す辞書末尾へ移し、未ロードモデルだけを新しく読み込む。"""
+        """読み込み済みモデルを再利用し、LRUの使用順を更新する。"""
 
         resolved_speaker_uuid, model_paths = self.meta_manager.resolve_model_path(
             style_id=style_id,
@@ -816,7 +816,7 @@ class AudioManager:
         )
 
     def _make_room_for_model(self, model_path: Path, style_id: int) -> None:
-        """保持件数と利用可能メモリの両方を満たすまで、最長未使用（LRU）の辞書先頭からモデルを解放する。"""
+        """保持数と空きメモリの条件を満たすまで、最後に使ってから最も時間が経ったモデルを解放する。"""
 
         while (
             self._max_loaded_models is not None
@@ -841,7 +841,7 @@ class AudioManager:
             )
 
     def _discard_model(self, model_key: ModelKey) -> None:
-        """指定モデルへの参照を外し、強制再読込前に旧重みを回収する。"""
+        """指定モデルへの参照を外し、再読み込みの前に古い重みを解放する。"""
 
         model = self._loaded_models.pop(model_key, None)
         if self._current_model_key == model_key:
@@ -852,7 +852,7 @@ class AudioManager:
             self._collect_released_model_memory()
 
     def _collect_released_model_memory(self) -> None:
-        """解放したモデルの循環参照と、OpenCLだけが保持するアロケータキャッシュを回収する。"""
+        """解放したモデルの循環参照と、OpenCLのアロケーターキャッシュを回収する。"""
 
         gc.collect()
         if self.device_selection.backend is DeviceBackend.OPENCL:
@@ -878,7 +878,7 @@ class AudioManager:
     def initialize_all_speakers(self) -> None:
         """全モデル保持モードへ切り替え、導入済みモデルを順番に事前ロードする。
 
-        メモリ不足時はLRUモデルを解放するため、完了時の保持数が全件未満になる場合がある。途中で失敗した場合は、ロード済みモデルをすべて破棄して以前の保持上限へ戻す。
+        メモリが不足すると古いモデルから解放されるため、全モデルを保持できない場合がある。途中で失敗した場合は、読み込み済みモデルを破棄して以前の保持上限へ戻す。
         """
 
         with self._synthesis_lock:
@@ -931,7 +931,7 @@ class AudioManager:
 
     @property
     def voice_smoothing(self) -> bool:
-        """明示的に有効化された場合だけ、合成時に継続長と追加解析を要求する。"""
+        """音声補正が有効で、合成時に継続長と追加解析が必要かを返す。"""
         return self._voice_smoother is not None
 
     def smooth_voice(
@@ -942,7 +942,7 @@ class AudioManager:
         *,
         hop_length: int,
     ) -> np.ndarray:
-        """未加工predictとは分離し、ネイティブ合成と互換合成で同じ補正を使う。"""
+        """未加工のpredictとは分け、ネイティブAPIとVOICEVOX互換APIに同じ音声補正を適用する。"""
         if self._voice_smoother is None:
             return wave
         smoothing_lock = (
@@ -1019,7 +1019,7 @@ class AudioManager:
                     model_input = (
                         tokens if isinstance(tokens, str) else model.tokens2ids(tokens)
                     )
-                # 補正も休止長変更も不要なら、継続長をCPUへ取り出さず従来の経路を保つ。
+                # 音声補正と休止長の変更が不要なら、継続長をCPUへ転送しない。
                 duration_required = self.voice_smoothing or (
                     pause_control_requested
                     and isinstance(tokens, list)
@@ -1036,7 +1036,7 @@ class AudioManager:
                     f"Failed to synthesize MYCOEIROINK style {style_id} for "
                     f"speakerUuid {active_speaker_uuid}"
                 ) from err
-            # 後処理中のモデル切替で旧モデルが不要に残らないよう、推論直後にローカル参照を外す。
+            # 後処理中にモデルが切り替わっても古いモデルが残らないよう、推論直後に参照を外す。
             del model
 
         try:
@@ -1087,7 +1087,7 @@ class AudioManager:
     ) -> PredictionResult:
         """未トリムのモデル波形とトークンごとのフレーム長を返す。
 
-        COEIROINK v2では生の推論と波形後処理を分離する。推論処理をCore内で管理することで、ESPnetの乱数状態とモデルキャッシュを従来合成と同じロックで保護できる。
+        推論はCore内で実行し、ESPnetの乱数状態とモデルキャッシュを通常の合成と同じロックで保護する。
         """
 
         self._validate_speed_scale(speed_scale)
@@ -1176,7 +1176,7 @@ class AudioManager:
         )
 
     def resample_output(self, wav, fs, output_sampling_rate):
-        """AudioManagerで明示選択されたリサンプラーを出力波形へ適用する。"""
+        """AudioManagerで選択されたリサンプラーを出力波形へ適用する。"""
 
         return self.resampling(
             wav,

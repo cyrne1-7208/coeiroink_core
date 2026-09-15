@@ -1,7 +1,7 @@
-"""音声合成バックエンドのデバイス選択境界。
+"""音声合成に使うデバイスを検出し、実行環境に合わせて選択する。
 
 モデル実行部分からデバイス検出とプラットフォーム判定を分離する。
-バックエンド固有のモジュールは遅延読込し、CPU利用時にDirectMLやOpenCLを必須にしない。
+バックエンド固有のモジュールは必要になるまで読み込まず、CPU利用時にDirectMLやOpenCLを必須にしない。
 """
 
 from __future__ import annotations
@@ -82,7 +82,7 @@ _PLATFORM_ALIASES = {
 
 
 def normalize_backend(value: str | DeviceBackend) -> DeviceBackend:
-    """バックエンド名を小文字の正規化値へ変換する。"""
+    """バックエンド名の表記を統一する。"""
 
     if isinstance(value, DeviceBackend):
         return value
@@ -100,7 +100,7 @@ def normalize_backend(value: str | DeviceBackend) -> DeviceBackend:
 
 
 def normalize_platform(value: str | None = None) -> str:
-    """OS名を検証用の正規化文字列へ変換する。"""
+    """OS名の表記を検証用に統一する。"""
 
     raw_value = sys.platform if value is None else value
     if not isinstance(raw_value, str):
@@ -114,7 +114,7 @@ def validate_platform(
     backend: str | DeviceBackend,
     platform: str | None = None,
 ) -> str:
-    """指定したバックエンドを実行できるOSか検証する。"""
+    """指定したバックエンドが現在のOSで動作するか検証する。"""
 
     normalized_backend = normalize_backend(backend)
     normalized_platform = normalize_platform(platform)
@@ -142,7 +142,7 @@ def validate_platform(
 
 
 def _normalize_index(value: int, name: str) -> int:
-    """Python整数とnumpy整数を受け付け、負数やboolは拒否する。"""
+    """Python整数とNumPy整数を受け付け、負数とboolは拒否する。"""
 
     if isinstance(value, bool):
         raise DeviceIndexError(f"{name} must be a non-negative integer")
@@ -157,7 +157,7 @@ def _normalize_index(value: int, name: str) -> int:
 
 @dataclass(frozen=True, slots=True)
 class DeviceSelection:
-    """検証済みのデバイス設定と、Coreが実行時に利用するデバイス実体を保持する。"""
+    """検証済みの設定と、Coreが実際に使うデバイスを保持する。"""
 
     backend: DeviceBackend
     device_index: int
@@ -167,8 +167,6 @@ class DeviceSelection:
 
     @property
     def device(self) -> Any:
-        """後続コード向けの短い別名。"""
-
         return self.runtime_device
 
 
@@ -195,8 +193,6 @@ class DeviceCapability:
 
     @property
     def supported(self) -> bool:
-        """`available`をAPI表示向けに表す別名。"""
-
         return self.available
 
     @property
@@ -216,7 +212,7 @@ ModuleImporter = Callable[[str], Any]
 class DeviceResolver:
     """実行環境を検査し、明示されたバックエンドのデバイスを解決する。
 
-    `modules`または`module_overrides`にモックを渡せるため、GPUドライバのない環境でも検出処理をテストできる。上書きされていないバックエンドモジュールは、必要になるまで遅延importされる。
+    `modules`または`module_overrides`にモックを渡すと、GPUドライバのない環境でも検出処理をテストできる。それ以外のバックエンドモジュールは、必要になるまで読み込まない。
     """
 
     def __init__(
@@ -265,7 +261,7 @@ class DeviceResolver:
         )
 
     def is_available(self, backend: str | DeviceBackend) -> bool:
-        """指定バックエンドの検出結果だけを返す。詳細はcapabilityに残る。"""
+        """指定したバックエンドが利用可能かを返す。"""
 
         return self.get_supported_device_capabilities()[
             normalize_backend(backend)
@@ -488,7 +484,8 @@ class DeviceResolver:
         )
 
     def _opencl_platforms(self) -> list[Any]:
-        # pytorch_oclのimportがPrivateUse1を`ocl`として登録し、pyopenclは上流バックエンドと同じ順序でplatform/deviceを列挙するためだけに使う。
+        # pytorch_oclを読み込むと、PrivateUse1が`ocl`として登録される。
+        # pyopenclは、プラットフォームとデバイスの並びを上流バックエンドと揃えるために使う。
         self._load_module(DeviceBackend.OPENCL)
         opencl_module = self._load_named_module(
             "pyopencl",
@@ -542,7 +539,7 @@ class DeviceResolver:
                 f"OpenCL device_index {device_index} is out of range; "
                 f"device_count={len(devices)} on platform_index={platform_index}"
             )
-        # PyTorchの`ocl:N`は一次元の通し番号だけを受け取るため、OpenCLのplatform/device指定を全プラットフォーム通しの番号へ変換する。
+        # PyTorchの`ocl:N`は通し番号だけを受け取るため、OpenCLのプラットフォーム番号とデバイス番号を一つの番号へ変換する。
         flat_device_index = (
             sum(
                 len(self._opencl_devices(platform))
@@ -658,7 +655,7 @@ class DeviceResolver:
         )
 
     def _probe_backend(self, backend: DeviceBackend) -> DeviceCapability:
-        """実際のデバイス生成まで試し、利用可能なバックエンドだけを公開情報へ含める。"""
+        """デバイスを実際に生成し、バックエンドが利用可能か確認する。"""
 
         if backend is DeviceBackend.CPU:
             return self._probe_cpu()
@@ -682,7 +679,7 @@ def resolve_device(
     module_importer: ModuleImporter | None = None,
     platform_name: str | None = None,
 ) -> DeviceSelection:
-    """DeviceResolverを直接指定せずにバックエンドのデバイスを解決する簡易API。"""
+    """DeviceResolverを省略して、使用するデバイスを決定する。"""
 
     if resolver is not None and any(
         value is not None
@@ -710,7 +707,7 @@ def get_supported_device_capabilities(
     module_importer: ModuleImporter | None = None,
     platform_name: str | None = None,
 ) -> dict[DeviceBackend, DeviceCapability]:
-    """DeviceResolverを直接指定せずに、全バックエンドの利用可能性を取得する簡易API。"""
+    """DeviceResolverを省略して、全バックエンドの利用可否を調べる。"""
 
     if resolver is not None and any(
         value is not None

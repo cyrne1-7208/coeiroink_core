@@ -113,7 +113,7 @@ KERNEL void candidates(GLOBAL const float *corr, GLOBAL const float *intensity,
             freq[base + place] = f; score[base + place] = value;
         }
     }
-    // 周波数候補の山を補間し、単なる整数ラグを周期位置の案内に使わない。
+    // 周波数候補のピークを補間し、サブサンプル精度の周期位置を求める。
     for (int i = 1; i < CANDIDATES; ++i) {
         if (freq[base + i] <= 0) continue;
         float center = rint(sr / freq[base + i]);

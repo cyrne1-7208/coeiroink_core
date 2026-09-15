@@ -109,7 +109,7 @@ class _CUDA:
 
 
 class GpuVoiceSmoother:
-    """GPU資源はManagerごとに保持する。呼び出しは既存の推論ロックで直列化する。"""
+    """GPUで音声を補正する。リソースはAudioManagerごとに保持し、推論ロックで直列化する。"""
 
     def __init__(self, selection: DeviceSelection):
         if selection.backend is DeviceBackend.CUDA:
@@ -131,7 +131,7 @@ class GpuVoiceSmoother:
         spans = _prepare_spans(wave, tokens, duration_frames, sampling_rate, hop_length)
         if not any(right - left > 0.1 * sampling_rate for left, right in spans):
             return wave
-        # 既存のNumPy波形境界を維持する。波形解析はGPUへ移し、モデル推論のAPIは変更しない。
+        # 既存APIとの互換性を保つため、NumPy配列を受け取り、波形の解析と補正だけをGPUで行う。
         with self.runtime.execution():
             result = self._smooth(wave, spans, sampling_rate)
         if not np.isfinite(result).all():
@@ -263,7 +263,7 @@ class GpuVoiceSmoother:
             scratch,
             medians,
         )
-        # CPUへ戻すのは起動範囲用の小さなメタデータだけ。F0・周期列・音色の解析はGPU内で完結する。
+        # CPUへ戻すのは補正区間を表す小さなデータだけで、F0、周期列、音色はGPU内で解析する。
         descriptors, periods = groups[:group_count].get(), medians.get()
         wave_slopes = self._slopes(wave, n)
         numerator, denominator = empty(n), empty(n)

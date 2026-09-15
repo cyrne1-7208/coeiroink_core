@@ -2,7 +2,7 @@
 requires = [
   "scikit-build-core>=0.11,<0.12",
   "pybind11>=3,<4",
-  # pt_oclはPyTorchのC++ ABIへリンクするため、ビルド時と実行時を同じ版にする。
+  # pt_oclはPyTorchのC++ ABIへリンクするため、ビルド時と実行時で同じバージョンを使う。
   "torch==2.10.0",
 ]
 build-backend = "scikit_build_core.build"

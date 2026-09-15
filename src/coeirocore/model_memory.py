@@ -1,4 +1,4 @@
-"""モデル追加前に利用可能メモリを確認するための軽量な判定処理を提供する。"""
+"""モデルを読み込む前に、必要な空きメモリがあるか確認する。"""
 
 from __future__ import annotations
 
@@ -125,10 +125,10 @@ def model_load_memory_error(
     generator_only: bool,
     resident_device_bytes: int,
 ) -> str | None:
-    """安全マージンを確保して次のチェックポイントをロードできない場合にのみ、その理由を返す。"""
+    """安全マージンを考慮してもモデルを読み込めるか確認し、不足時は理由を返す。"""
 
     checkpoint_bytes = model_path.stat().st_size
-    # 従来の全体ローダーはモデル構築・state_dict・読み込み時の一時領域を併存させる。generator-onlyはmmapから必要な重みだけを複製する。
+    # 全体ローダーではモデル構造、state_dict、一時領域が同時にメモリを使う。generator-onlyはmmapから必要な重みだけをコピーする。
     host_load_bytes = math.ceil(checkpoint_bytes * (1.5 if generator_only else 3.0))
     host_total, host_available = _host_memory()
     host_reserve = max(_MIN_HOST_RESERVE, host_total // 20)
@@ -143,7 +143,8 @@ def model_load_memory_error(
         device_total, device_available = _cuda_memory(selection)
     elif selection.backend is DeviceBackend.OPENCL:
         device_total = _opencl_total_memory(selection)
-        # OpenCL標準には空きデバイスメモリ取得APIがないため、総容量から本プロセスの推定常駐モデル量を引いて判定する。ドライバや他プロセスの使用量は直接取得できず、下の予約領域はそのリスクを抑えるための余裕である。
+        # OpenCL標準には空きメモリの取得APIがないため、総容量から本プロセスの推定使用量を引く。
+        # ドライバや他プロセスの使用量は取得できないため、安全マージンを多めに確保する。
         device_available = max(0, device_total - resident_device_bytes)
     else:
         return None

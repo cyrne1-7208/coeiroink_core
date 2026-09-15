@@ -20,7 +20,7 @@ class _VitsPathDurationCalculator(torch.nn.Module):
 
 @lru_cache(maxsize=1)
 def _vits_type() -> type:
-    """モデル読込時までESPnetのVITS実装をimportしない。"""
+    """モデル読み込み時までESPnetのVITS実装を読み込まない。"""
 
     from espnet2.gan_tts.vits.vits import VITS
 

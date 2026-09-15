@@ -14,9 +14,9 @@ license = { file = "LICENSE" }
 authors = [{ name = "shirowanisan" }]
 urls = { Homepage = "https://github.com/cyrne1-7208/coeiroink_core" }
 dependencies = [
-    # 既存MYCOEIROINKモデルのESPnet jaconvテキストクリーナーを利用する。
+    # 既存のMYCOEIROINKモデルで使われる、ESPnetのjaconvテキストクリーナー。
     "jaconv>=0.4,<1",
-    # ESPnetのjaconvクリーナーが共通importするtacotron_cleanerを提供する。
+    # ESPnetのjaconvクリーナーが読み込むtacotron_cleanerを提供する。
     "espnet-tts-frontend>=0.0.3,<1",
     "numba>=0.67,<0.68",
     "numpy>=2.3,<2.4",
@@ -29,10 +29,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# PyTorch wheelの種類が異なるため、実行環境ではbackend extraを必ず1つだけ選択する。
+# バックエンドごとにPyTorchのwheelが異なるため、extraは一つだけ選択する。
 cpu = [
     "espnet @ git+https://github.com/espnet/espnet.git@v.202609",
-    # CPU補正の周期検出結果を再現するため版を固定する。
+    # CPUでの周期検出結果を変えないため、バージョンを固定する。
     "praat-parselmouth==0.4.7",
     "scipy>=1.16,<2",
     "torch==2.10.0",
@@ -55,10 +55,10 @@ directml = [
     "torch-directml==0.2.5.dev240914; sys_platform == 'win32'",
 ]
 opencl = [
-    # OpenCLはLinuxでCUDAを利用できないGPU向けのPrivateUse1 backendとして個別に導入する。
+    # OpenCLは、LinuxでCUDAを利用できないGPU向けのPrivateUse1バックエンドとして導入する。
     "coeiroink-opencl==0.2.0+coeiroink.1.7.3; sys_platform == 'linux'",
     "espnet @ git+https://github.com/espnet/espnet.git@v.202609 ; sys_platform == 'linux'",
-    # native packageの依存メタデータはTorch ABI解決のため空にしているので、Python bindingは親extraでも宣言する。
+    # TorchのABI解決を親extraへ集約するため、依存情報が空のネイティブパッケージとは別にPythonバインディングを指定する。
     "pyopencl>=2026.1.2,<2027; sys_platform == 'linux'",
     "torch==2.10.0; sys_platform == 'linux'",
     "torchaudio==2.10.0; sys_platform == 'linux'",
@@ -76,7 +76,7 @@ dev = [
 ]
 [tool.uv]
 default-groups = []
-# 異なるbackend wheelを同一環境に混在させないよう、各backend extraを相互排他的にする。
+# 異なるバックエンドのwheelが同じ環境に入らないよう、各extraを同時に指定できない設定にする。
 conflicts = [
     [
         { extra = "cpu" },
@@ -109,7 +109,7 @@ environments = [
 ]
 
 [tool.uv.sources]
-# OpenCL拡張は公開リポジトリへ含めるローカルnative packageから再現可能にビルドする。
+# OpenCL拡張は、リポジトリ内のネイティブパッケージから再現可能な形でビルドする。
 coeiroink-opencl = [
     { path = "native/opencl", extra = "opencl" },
 ]
@@ -134,7 +134,7 @@ coeiroink-opencl = [
 [[tool.uv.dependency-metadata]]
 name = "coeiroink-opencl"
 version = "0.2.0+coeiroink.1.7.3"
-# backend別Torchは親extraで固定済みなので、ローカルpackageの重複要件をlock解決へ持ち込まない。
+# Torchのバージョンは親のextraで固定しているため、ローカルパッケージ側では重ねて指定しない。
 requires-dist = []
 
 [[tool.uv.index]]

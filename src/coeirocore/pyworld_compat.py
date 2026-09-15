@@ -38,7 +38,7 @@ def _load_extension(extension_path: Path) -> ModuleType:
 
 @lru_cache(maxsize=1)
 def load_pyworld() -> ModuleType:
-    """非推奨のpkg_resourcesを使うラッパーを避けてPyWorldを返す。"""
+    """非推奨のpkg_resourcesを使う初期化処理を避け、PyWorldの拡張モジュールを直接読み込む。"""
 
     try:
         distribution = importlib.metadata.distribution("pyworld")

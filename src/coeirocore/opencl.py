@@ -1,4 +1,4 @@
-"""OpenCL実行時にVITSの1D畳み込みを2D演算へ写像する。"""
+"""OpenCL実行時に、VITSの1D畳み込みを等価な2D演算へ変換する。"""
 
 from collections.abc import Sequence
 from typing import Any
@@ -32,7 +32,7 @@ class OpenCLVitsMode(TorchDispatchMode):
         call_kwargs = {} if kwargs is None else kwargs
 
         if func is _CONVOLUTION:
-            # VITSが使用する1D畳み込みだけを2Dへ写像し、それ以外の畳み込みは元のディスパッチへ渡す。
+            # VITSが使う1D畳み込みだけを2D演算へ変換し、それ以外は元の処理へ渡す。
             converted = self._convert_convolution(args)
             if converted is not None:
                 result = func(*converted, **call_kwargs)

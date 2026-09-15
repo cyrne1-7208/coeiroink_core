@@ -68,7 +68,8 @@ def detect_non_silent_range(
         window_shape=frame_length,
         axis=-1,
     )[..., ::hop_length, :]
-    # sliding_window_view自体はコピーしないが、全フレームを一括で二乗すると長尺音声で巨大な一時配列になるため、二乗配列を約8MiB以下に分割する。
+    # sliding_window_viewはメモリをコピーしないが、全フレームを一度に二乗すると大きな一時配列ができる。
+    # そのため、二乗計算を約8MiB以下の単位に分ける。
     leading_values = prod(frames.shape[:-2])
     bytes_per_frame = max(
         1,
