@@ -39,7 +39,7 @@ uv sync --python 3.12 --locked --extra directml
 
 Coreの`AudioManager(max_loaded_models=...)`（Engineでは`--max-loaded-models`）で同時保持モデル数を指定します。既定値は1で、数値指定時は直近に使用したモデルから順に最大指定数まで保持し、`None`（Engineでは`all`）では全モデルを起動時に読み込みます。次のモデルを安全に読み込める空きメモリがない場合は、指定値にかかわらずLRUモデルを解放するため、全モデルがメモリに収まらない環境では起動後の保持数が全件未満になることがあります。
 
-実験的な`generator_only=True`では、VITSの学習専用モジュールへ実メモリを割り当てず推論に必要な重みだけを読み込むため、推論結果を変えない設計でモデルロード時のメモリ消費を抑えます。
+モデルは既定で、VITSの学習専用モジュールへ実メモリを割り当てず推論に必要な重みだけを読み込みます。通常の合成処理や推論結果を変えず、モデルロード時のメモリ消費を抑えます。従来の全体ローダーは将来の互換性検討に備えてコードを保持していますが、通常のEngine起動では使用しません。
 
 ## 実験的な音声補正
 
@@ -60,7 +60,7 @@ uv run --locked --extra cpu --group dev pytest -q
 
 ## ライセンス
 
-LGPL-3.0-onlyです。詳細は[LICENSE](./LICENSE)を参照してください。LGPLv3が参照するGPLv3本文は[licenses/GPL-3.0.txt](./licenses/GPL-3.0.txt)に収録しています。
+本リポジトリのソースコードは、個別にライセンスが示されているものを除き、LGPL-3.0-onlyです。詳細は[LICENSE](./LICENSE)を参照してください。LGPLv3が参照するGPLv3本文は[licenses/GPL-3.0.txt](./licenses/GPL-3.0.txt)に収録しています。
 
 ## 謝辞
 

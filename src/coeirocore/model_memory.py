@@ -128,7 +128,7 @@ def model_load_memory_error(
     """安全マージンを確保して次のチェックポイントをロードできない場合にのみ、その理由を返す。"""
 
     checkpoint_bytes = model_path.stat().st_size
-    # 通常経路はモデル構築・state_dict・読み込み時の一時領域を併存させる。generator-onlyはmmapから必要な重みだけを複製する。
+    # 従来の全体ローダーはモデル構築・state_dict・読み込み時の一時領域を併存させる。generator-onlyはmmapから必要な重みだけを複製する。
     host_load_bytes = math.ceil(checkpoint_bytes * (1.5 if generator_only else 3.0))
     host_total, host_available = _host_memory()
     host_reserve = max(_MIN_HOST_RESERVE, host_total // 20)

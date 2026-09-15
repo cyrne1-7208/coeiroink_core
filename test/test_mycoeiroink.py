@@ -270,6 +270,7 @@ def test_audio_manager_loads_lazily_and_reuses_model(tmp_path: Path):
 
         def __init__(self, *args, **kwargs):
             self.speed_control_alpha = kwargs["speed_scale"]
+            self.generator_only = kwargs["generator_only"]
             self.instances.append(self)
 
         def set_speed_control_alpha(self, value):
@@ -291,6 +292,7 @@ def test_audio_manager_loads_lazily_and_reuses_model(tmp_path: Path):
         manager.synthesis(["^", "a", "$"], style_id=STYLE_ID)
         manager.synthesis(["^", "i", "$"], style_id=STYLE_ID)
         assert len(FakeEspnetModel.instances) == 1
+        assert FakeEspnetModel.instances[0].generator_only is True
 
         manager.synthesis(["^", "u", "$"], style_id=STYLE_ID, speed_scale=1.25)
         assert len(FakeEspnetModel.instances) == 1
@@ -843,6 +845,7 @@ def test_espnet_model_passes_runtime_device_as_string(tmp_path: Path):
             config_path=config_path,
             model_path=tmp_path / "model.pth",
             device=resolve_device("cpu"),
+            generator_only=False,
         )
 
     assert captured["device"] == "cpu"

@@ -43,7 +43,7 @@ jobs:
         run: uv lock --check
 
       - name: Install build dependencies
-        run: uv sync --locked --extra cpu --group build
+        run: uv sync --locked --extra cpu
 
       - name: Build wheel and source archive once
         run: uv build --wheel --sdist --out-dir dist

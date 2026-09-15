@@ -469,7 +469,7 @@ class EspnetModel:
         device: str | DeviceBackend | DeviceSelection | None = None,
         device_index: int = 0,
         opencl_platform_index: int = 0,
-        generator_only: bool = False,
+        generator_only: bool = True,
     ):
         self.device_selection = _resolve_inference_device(
             device=device,
@@ -633,7 +633,7 @@ class AudioManager:
         cpu_num_threads: int | None = None,
         resampler: str = "resampy",
         max_loaded_models: int | None = 1,
-        generator_only: bool = False,
+        generator_only: bool = True,
         voice_smoothing: bool = False,
     ):
         if isinstance(fs, bool) or not isinstance(fs, int) or fs <= 0:

@@ -99,7 +99,7 @@ jobs:
       - name: Install the locked target environment
         env:
           BACKEND: ${{ matrix.extra }}
-        run: uv sync --locked --extra "$BACKEND" --group build --group dev
+        run: uv sync --locked --extra "$BACKEND" --group dev
 
       - name: Check installed dependencies and imports
         env:
