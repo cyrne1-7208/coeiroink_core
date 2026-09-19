@@ -30,6 +30,12 @@ from .waveform import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _world_f0(wave: np.ndarray, sampling_rate: int) -> tuple[np.ndarray, np.ndarray]:
+    world = load_pyworld()
+    f0, time_axis = world.harvest(wave, sampling_rate)
+    return world.stonemask(wave, f0, time_axis, sampling_rate), time_axis
+
+
 def _configure_cpu_threads(num_threads: int) -> None:
     """TorchとNumbaに、指定された同一のCPUスレッド数を設定する。"""
 
@@ -1186,12 +1192,18 @@ class AudioManager:
         )
 
     @staticmethod
+    def get_world_f0(x, fs):
+        """F0だけが必要な処理では、スペクトル包絡と非周期性指標を計算しない。"""
+
+        f0, _ = _world_f0(x, fs)
+        return f0
+
+    @staticmethod
     def get_world(x, fs):
         """WORLDで波形から基本周波数、スペクトル包絡、非周期性指標を抽出する。"""
 
         world = load_pyworld()
-        _f0_h, t_h = world.harvest(x, fs)
-        f0_h = world.stonemask(x, _f0_h, t_h, fs)
+        f0_h, t_h = _world_f0(x, fs)
         sp_h = world.cheaptrick(x, f0_h, t_h, fs)
         ap_h = world.d4c(x, f0_h, t_h, fs)
         return f0_h, sp_h, ap_h

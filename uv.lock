@@ -33,7 +33,7 @@ conflicts = [[
 
 [[manifest.dependency-metadata]]
 name = "coeiroink-opencl"
-version = "0.2.0+coeiroink.1.7.3"
+version = "0.2.1+coeiroink.1.7.3"
 
 [[package]]
 name = "absl-py"
@@ -194,7 +194,7 @@ wheels = [
 
 [[package]]
 name = "coeirocore"
-version = "0.2.0+coeiroink.1.7.3"
+version = "0.2.1+coeiroink.1.7.3"
 source = { editable = "." }
 dependencies = [
     { name = "espnet-tts-frontend" },
@@ -294,7 +294,7 @@ dev = [
 
 [[package]]
 name = "coeiroink-opencl"
-version = "0.2.0+coeiroink.1.7.3"
+version = "0.2.1+coeiroink.1.7.3"
 source = { directory = "native/opencl" }
 
 [[package]]

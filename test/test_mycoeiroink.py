@@ -33,6 +33,24 @@ SPEAKER_UUID_2 = "00000000-0000-4000-8000-000000000002"
 STYLE_ID = 1001
 
 
+def test_f0_only_analysis_matches_world_without_spectral_analysis(monkeypatch):
+    sampling_rate = 16000
+    time_axis = np.arange(4800, dtype=np.float64) / sampling_rate
+    wave = np.sin(2 * np.pi * 200 * time_axis)
+    expected, _, _ = AudioManager.get_world(wave, sampling_rate)
+
+    def unexpected_spectral_analysis(*args, **kwargs):
+        pytest.fail("F0-only analysis must not compute spectral parameters")
+
+    world = coeiro_manager.load_pyworld()
+    monkeypatch.setattr(world, "cheaptrick", unexpected_spectral_analysis)
+    monkeypatch.setattr(world, "d4c", unexpected_spectral_analysis)
+
+    np.testing.assert_array_equal(
+        AudioManager.get_world_f0(wave, sampling_rate), expected
+    )
+
+
 def test_cpu_thread_limit_is_available_during_first_numba_import(monkeypatch):
     fake_numba = ModuleType("numba")
     fake_numba.get_num_threads = MagicMock(return_value=128)

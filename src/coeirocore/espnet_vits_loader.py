@@ -11,8 +11,6 @@ import numpy as np
 import torch
 import yaml
 
-from .espnet_inference import _VitsPathDurationCalculator
-
 _WRAPPER_TRAINING_MODULES = (
     "feats_extract",
     "pitch_extract",
@@ -55,7 +53,6 @@ class GeneratorOnlyText2Speech:
             "noise_scale": noise_scale,
             "noise_scale_dur": noise_scale_dur,
         }
-        self.duration_calculator = _VitsPathDurationCalculator().eval()
 
     @torch.no_grad()
     def __call__(
@@ -71,12 +68,8 @@ class GeneratorOnlyText2Speech:
         config = self.decode_conf
         if decode_conf is not None:
             config = self.decode_conf | decode_conf
-        output = self.model.inference(**batch, **config)
-        attention = output.get("att_w")
-        if attention is not None:
-            duration, focus_rate = self.duration_calculator(attention)
-            output.update(duration=duration, focus_rate=focus_rate)
-        return output
+        # 現行ESPnetのVITSは継続長も返すため、アライメントからの再集計は不要。
+        return self.model.inference(**batch, **config)
 
 
 def _read_train_args(config_path: Path) -> argparse.Namespace:
