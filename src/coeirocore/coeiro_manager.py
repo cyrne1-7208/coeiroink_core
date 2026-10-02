@@ -7,15 +7,100 @@ from typing import List, Iterable, Union, Dict
 
 import librosa
 import numpy as np
-import pyworld as pw
 import resampy
-import sklearn.neighbors._partition_nodes
-import sklearn.utils._typedefs
 import torch
 import yaml
-from espnet2.bin.tts_inference import Text2Speech
-from espnet2.text.phoneme_tokenizer import pyopenjtalk_g2p_prosody
-from espnet2.text.token_id_converter import TokenIDConverter
+from packaging.version import Version
+
+from .pyworld_compat import load_pyworld
+
+pw = load_pyworld()
+
+
+def _install_espnet_numpy_compat() -> None:
+    """凍結版ESPnetの任意経路が使うNumPy別名を復元します。
+    COEIROINKのVITS推論はこれらを使いませんが、凍結版ESPnetの前処理とGriffin-Lim実装が参照します。
+    NumPy 1.26で別名が削除されたため、ESPnet自体を改変・同梱せずCoreのimport境界で組み込み型を設定します。
+    """
+
+    aliases = {
+        "bool": bool,
+        "complex": complex,
+        "float": float,
+        "int": int,
+        "object": object,
+        "str": str,
+    }
+    for name, replacement in aliases.items():
+        if name not in np.__dict__:
+            setattr(np, name, replacement)
+
+
+_install_espnet_numpy_compat()
+
+
+def _install_espnet_version_compat() -> None:
+    """凍結版ESPnetが使う非推奨のLooseVersion実装を置き換えます。"""
+
+    from setuptools._distutils import version as distutils_version
+
+    distutils_version.LooseVersion = Version
+
+
+_install_espnet_version_compat()
+
+
+def _install_torch_weight_norm_compat() -> None:
+    """凍結版ESPnetの呼び出しをTorchがサポートするparametrization APIへ接続します。"""
+
+    from torch.nn.utils import parametrizations, parametrize
+
+    modern_weight_norm = getattr(parametrizations, "weight_norm", None)
+    if modern_weight_norm is None:
+        return
+
+    current_weight_norm = torch.nn.utils.weight_norm
+    if getattr(current_weight_norm, "__coeiroink_modern_compat__", False):
+        return
+
+    legacy_remove_weight_norm = torch.nn.utils.remove_weight_norm
+
+    def weight_norm(module, name="weight", dim=0):
+        return modern_weight_norm(module, name=name, dim=dim)
+
+    def remove_weight_norm(module, name="weight"):
+        module_parametrizations = getattr(module, "parametrizations", None)
+        if module_parametrizations is not None and name in module_parametrizations:
+            parametrization_list = module_parametrizations[name]
+            if any(
+                type(item).__name__ == "_WeightNorm"
+                for item in parametrization_list
+            ):
+                return parametrize.remove_parametrizations(
+                    module, name, leave_parametrized=True
+                )
+        return legacy_remove_weight_norm(module, name=name)
+
+    weight_norm.__coeiroink_modern_compat__ = True
+    torch.nn.utils.weight_norm = weight_norm
+    torch.nn.utils.remove_weight_norm = remove_weight_norm
+
+
+_install_torch_weight_norm_compat()
+
+def _load_espnet_dependencies():
+    """互換シムを適用してから凍結版ESPnetをimportします。"""
+
+    from espnet2.bin.tts_inference import Text2Speech
+    from espnet2.text.phoneme_tokenizer import pyopenjtalk_g2p_prosody
+    from espnet2.text.token_id_converter import TokenIDConverter
+
+    return Text2Speech, pyopenjtalk_g2p_prosody, TokenIDConverter
+
+
+# 互換シムを先に適用してから読み込む必要があります。
+# 凍結版ESPnetがimport中に変更済みのNumPyとdistutilsのシンボルを参照するためです。
+Text2Speech, pyopenjtalk_g2p_prosody, TokenIDConverter = _load_espnet_dependencies()
 
 
 @dataclass
