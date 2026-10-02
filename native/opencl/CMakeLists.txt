@@ -45,7 +45,7 @@ endif()
 # 上流も同じ変数名を参照するため、検証済みのパスをサブプロジェクトへ渡す。
 set(OCL_PATH "${COEIROINK_OPENCL_INCLUDE_DIR}" CACHE PATH "OpenCL include directory" FORCE)
 set(OCL_LIB "${COEIROINK_OPENCL_LIBRARY}" CACHE FILEPATH "OpenCL loader library" FORCE)
-# DLPrimitivesのデバイス・ドライバ別バイナリキャッシュを必ず有効にし、再起動時のカーネル再コンパイルを避ける。
+# DLPrimitivesのキャッシュ機能を有効にし、対応するデバイスでは再起動後もコンパイル結果を再利用する。
 set(USE_SQLITE3 ON CACHE BOOL "Enable DLPrimitives kernel cache" FORCE)
 set(SQLITE3_PATH "${SQLite3_INCLUDE_DIRS}" CACHE PATH "SQLite3 include directory" FORCE)
 set(SQLITE3_LIB "${SQLite3_LIBRARIES}" CACHE FILEPATH "SQLite3 library" FORCE)
@@ -65,7 +65,8 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(pytorch_dlprim)
 
-# ESPnet VITSの実推論で上流に不足する演算だけをCore側で登録し、Coreにも上流にもGPU実装がない演算は上流の警告付きCPUフォールバックへ委ねる。
+# VITSでpytorch_dlprimに不足する演算だけをCore側でPrivateUse1へ登録する。
+# 未登録演算はpytorch_dlprim側の警告とCPUフォールバックに任せる。
 target_sources(pt_ocl PRIVATE "${CMAKE_CURRENT_LIST_DIR}/src/vits_ops.cpp")
 target_include_directories(pt_ocl PRIVATE "${pytorch_dlprim_SOURCE_DIR}/src")
 

@@ -25,6 +25,8 @@ class AudioQuery(BaseModel):
     volumeScale: float
     prePhonemeLength: float
     postPhonemeLength: float
+    pauseLength: float | None = None
+    pauseLengthScale: float = 1.0
     outputSamplingRate: int
     outputStereo: bool
     kana: str | None = None

@@ -4,8 +4,6 @@ Cyrne1によってフォークされたCOEIROINK Coreです。
 
 MYCOEIROINKのVITSモデルを実行し、Engineへ波形と音素durationを提供します。GUIやHTTPサーバーは含みません。
 
-バージョンは`vX.Y.Z+coeiroink.1.7.3`形式で表記し、現在のバージョンは`v0.1.1+coeiroink.1.7.3`です。
-
 ## 対象環境
 
 CoreとEngineを同じ親ディレクトリへ配置し、利用するバックエンドを1つ選択します。

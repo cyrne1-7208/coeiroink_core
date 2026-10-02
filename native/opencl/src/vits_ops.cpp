@@ -998,7 +998,8 @@ std::tuple<Tensor&, Tensor&> weight_norm_out(
 
 }  // namespace coeiroink::opencl
 
-// pytorch_dlprimに不足するVITS演算だけをPrivateUse1へ追加登録し、Coreにも上流にもGPU実装がない演算は上流実装が警告後にCPUへフォールバックする。
+// pytorch_dlprimに不足するVITS演算だけをPrivateUse1へ追加登録する。
+// 未登録の演算はpytorch_dlprim側の警告とフォールバックに任せ、ここでは隠さない。
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("aten::gather", &coeiroink::opencl::gather);
     m.impl("aten::gather.out", &coeiroink::opencl::gather_out);

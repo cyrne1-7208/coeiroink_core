@@ -33,7 +33,7 @@ conflicts = [[
 
 [[manifest.dependency-metadata]]
 name = "coeiroink-opencl"
-version = "0.1.1+coeiroink.1.7.3"
+version = "0.1.2+coeiroink.1.7.3"
 
 [[package]]
 name = "absl-py"
@@ -194,7 +194,7 @@ wheels = [
 
 [[package]]
 name = "coeirocore"
-version = "0.1.1+coeiroink.1.7.3"
+version = "0.1.2+coeiroink.1.7.3"
 source = { editable = "." }
 dependencies = [
     { name = "kaldiio" },
@@ -284,7 +284,7 @@ dev = [
 
 [[package]]
 name = "coeiroink-opencl"
-version = "0.1.1+coeiroink.1.7.3"
+version = "0.1.2+coeiroink.1.7.3"
 source = { directory = "native/opencl" }
 
 [[package]]
