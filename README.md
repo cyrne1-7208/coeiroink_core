@@ -1,109 +1,41 @@
-# coeiroink_core
+# COEIROINK Core (Forked by Cyrne1)
 
-## Installation
+Cyrne1によってフォークされたCOEIROINK Coreです。
 
-```bash
-pip install git+https://git@github.com/shirowanisan/espnet@espnet-0.10.3 --no-deps
-pip install -r requirements.txt --no-deps
-# dev
-pip install -r requirements-dev.txt
-```
+## 対象環境
 
-```bash
-pip install git+https://github.com/shirowanisan/coeiroink_core.git
-```
+現在の公式検証対象はLinux x64 CPU、Python 3.12です。CoreとEngineを同じ親ディレクトリへ配置してください。
 
-## Build
+## セットアップ
 
-version: c-1.7.3+v-1.14.5
+Engine側のセットアップスクリプトが、CPU版PyTorch、Open JTalk辞書、固定したESPnet互換環境をまとめて構築します。
 
 ```bash
-$ python --version 
-Python 3.9.12
+bash ../coeiroink_engine/build_util/setup_mycoeiroink_linux_cpu.bash ../coeiroink_engine/.venv .
 ```
 
-### Mac
+`speaker_info`には、展開したMYCOEIROINKモデルのフォルダを配置します。旧形式（`config.yaml`の`version: 0.10.3`）と、COEIROINK v2形式のモデルを対象に、`speakerUuid`と`styleId`の組でモデルを識別します。
+
+直接インストールする場合は、Coreの依存関係を導入した後に次を実行します。
 
 ```bash
-# voicevox engine
-git clone git@github.com:shirowanisan/voicevox_engine.git
-cd voicevox_engine
-git checkout c-1.7.3+v-0.14.5
-python3 -m venv venv
-source ./venv/bin/activate.fish
-# coeiroinkcore
-pip install git+https://git@github.com/shirowanisan/espnet@espnet-0.10.3 --no-deps
-pip install -r requirements.txt --no-deps
-pip install .
-# voicevox engine
-pip install --upgrade pip setuptools wheel
-pip install -r requirements.txt
-cp -r ../speaker_info ./
-cp -r ../open_jtalk_dic_utf_8-1.11 venv/lib/python3.9/site-packages/pyopenjtalk/open_jtalk_dic_utf_8-1.11
-python run.py
-# license
-pip install pip-licenses
-python generate_licenses.py > licenses.json
-# build
-pip install pyinstaller
-pyinstaller run.py
-# cp
-mkdir -p dist/run/espnet/
-cp venv/lib/python3.9/site-packages/espnet/version.txt dist/run/espnet/
-mkdir -p dist/run/librosa/util/example_data
-cp venv/lib/python3.9/site-packages/librosa/util/example_data/registry.txt dist/run/librosa/util/example_data/
-cp venv/lib/python3.9/site-packages/librosa/util/example_data/index.json dist/run/librosa/util/example_data/
-cp -r venv/lib/python3.9/site-packages/pyopenjtalk/open_jtalk_dic_utf_8-1.11 dist/run/pyopenjtalk/
-cp engine_manifest.json dist/run/
-cp -r engine_manifest_assets dist/run/
-cp -r speaker_info dist/run/
-cp default_setting.yml dist/run/
-cp default.csv dist/run/
-cp -r ui_template dist/run/
-# test
-cd dist/run/
-python -c "import pyopenjtalk; pyopenjtalk.create_user_dict('default.csv','user.dic')"
-./run
+python -m pip install --editable .
 ```
 
-### Windows
+`requirements-espnet.txt`はモデル互換性のため固定した公開ESPnetコミットを指定しています。`requirements-pyopenjtalk.txt`はOpen JTalk辞書を提供します。
+
+## テスト
 
 ```bash
-# voicevox engine
-git clone git@github.com:shirowanisan/voicevox_engine.git
-cd voicevox_engine
-git checkout c-1.7.3+v-0.14.5
-python -m venv venv
-.\venv\Scripts\activate
-# coeiroinkcore
-pip install git+https://git@github.com/shirowanisan/espnet@espnet-0.10.3 --no-deps
-pip install -r requirements.txt --no-deps
-pip install .
-# voicevox engine
-pip install --upgrade pip setuptools wheel
-pip install -r requirements.txt
-cp -r ../speaker_info ./
-cp -r ../open_jtalk_dic_utf_8-1.11 venv/Lib/site-packages/pyopenjtalk/open_jtalk_dic_utf_8-1.11
-python run.py
-# if using gpu
-pip3 install torch==1.10.2+cu113 torchvision==0.11.3+cu113 torchaudio===0.10.2+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html
-# license
-pip install pip-licenses
-python generate_licenses.py > licenses.json
-# build
-pip install pyinstaller
-pyinstaller run.py
-# cp
-mkdir dist/run/espnet
-cp venv/Lib/site-packages/espnet/version.txt dist/run/espnet/
-mkdir dist/run/librosa/util/example_data
-cp venv/Lib/site-packages/librosa/util/example_data/registry.txt dist/run/librosa/util/example_data/
-cp venv/Lib/site-packages/librosa/util/example_data/index.json dist/run/librosa/util/example_data/
-cp -r venv/Lib/site-packages/pyopenjtalk/open_jtalk_dic_utf_8-1.11 dist/run/pyopenjtalk/
-cp engine_manifest.json dist/run/
-cp -r engine_manifest_assets dist/run/
-cp -r speaker_info dist/run/
-cp default_setting.yml dist/run/
-cp default.csv dist/run/
-cp -r ui_template dist/run/
+PYTHONPATH=src python -m pytest -q
 ```
+
+モデルは要求時にロードされ、正常にロードされたモデルはプロセス内に保持されます。明示的なモデル数上限は設けず、CPU環境の利用可能メモリを自然な上限とします。
+
+## ライセンス
+
+LGPL v3です。詳細は[LICENSE](./LICENSE)を参照してください。
+
+## 謝辞
+
+本プロジェクトは、[shirowanisan/coeiroink_core](https://github.com/shirowanisan/coeiroink_core)の公開ソースを基盤に、[ESPnet](https://github.com/espnet/espnet)、[pyopenjtalk](https://github.com/r9y9/pyopen_jtalk)、[PyTorch](https://pytorch.org/)などのオープンソースソフトウェアを利用しています。各プロジェクトの開発者・貢献者に感謝します。
