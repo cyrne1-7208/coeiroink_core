@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=77,<83", "wheel>=0.45,<1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kaldiio"
+version = "2.18.1+coeiroink.guard1"
+description = "COEIROINK Server import guard that does not implement Kaldi data I/O"
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+license = "LGPL-3.0-only"
+urls = { Homepage = "https://github.com/cyrne1-7208/coeiroink_core" }
+
+[tool.setuptools.packages.find]
+where = ["src"]

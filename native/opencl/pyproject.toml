@@ -1,0 +1,48 @@
+[build-system]
+requires = [
+  "scikit-build-core>=0.11,<0.12",
+  "pybind11>=3,<4",
+  # pt_oclはPyTorchのC++ ABIへリンクするため、ビルド時と実行時を同じ版にする。
+  "torch==2.10.0",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "coeiroink-opencl"
+version = "0.1.0"
+description = "OpenCL PrivateUse1 backend for COEIROINK Core"
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+  "pyopencl>=2026.1.2,<2027",
+  "torch==2.10.0",
+]
+license = "LGPL-3.0-only"
+license-files = [
+  "pytorch_dlprim_LICENSE.txt",
+  "dlprimitives_LICENSE.txt",
+]
+
+[tool.scikit-build]
+cmake.version = ">=3.31,<4"
+ninja.version = ">=1.11"
+sdist.include = [
+  "CMakeLists.txt",
+  "README.md",
+  "pytorch_dlprim_LICENSE.txt",
+  "dlprimitives_LICENSE.txt",
+  "patches/dlprimitives-batch-gemm-zorder.patch",
+  "python/pytorch_ocl/__init__.py",
+  "src/vits_ops.cpp",
+]
+
+[tool.uv]
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
