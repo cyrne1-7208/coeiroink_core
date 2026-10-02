@@ -52,7 +52,7 @@ set(SQLITE3_LIB "${SQLite3_LIBRARIES}" CACHE FILEPATH "SQLite3 library" FORCE)
 set(BUILD_CORE_ONLY ON CACHE BOOL "Build only DLPrimitives core" FORCE)
 set(DLPRIM_STATIC_BUILD ON CACHE BOOL "Link DLPrimitives statically" FORCE)
 
-# 公開MIT実装を固定し、BatchSGEMMの未初期化値と行列積・畳み込みの入力長依存コンパイルを修正する。
+# 公開MIT実装を固定し、BatchSGEMMにおける値の未初期化問題と行列積・畳み込みの入力長依存コンパイルを修正する。
 FetchContent_Declare(
   pytorch_dlprim
   GIT_REPOSITORY https://github.com/artyom-beilis/pytorch_dlprim.git
@@ -78,9 +78,14 @@ set_property(TARGET pt_ocl PROPERTY LINK_LIBRARIES "${_coeiroink_pt_ocl_link_lib
 add_custom_target(coeiroink_opencl_build ALL DEPENDS pt_ocl)
 install(TARGETS pt_ocl LIBRARY DESTINATION pytorch_ocl)
 install(FILES "${CMAKE_CURRENT_LIST_DIR}/python/pytorch_ocl/__init__.py" DESTINATION pytorch_ocl)
-# OpenCL wheel単体で再配布条件を確認できるよう、リポジトリのLGPL本文も同梱する。
+# OpenCL wheel単体で再配布条件を確認できるよう、LGPLv3と参照先のGPLv3本文も同梱する。
 install(
-  FILES "${CMAKE_CURRENT_LIST_DIR}/../../LICENSE"
+  FILES "${CMAKE_CURRENT_LIST_DIR}/LICENSE"
   DESTINATION pytorch_ocl
   RENAME COEIROINK_LICENSE.txt
+)
+install(
+  FILES "${CMAKE_CURRENT_LIST_DIR}/licenses/GPL-3.0.txt"
+  DESTINATION pytorch_ocl
+  RENAME GPL-3.0.txt
 )

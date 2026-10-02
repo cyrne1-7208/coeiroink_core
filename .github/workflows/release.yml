@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "リリースするバージョン（例: v0.1.2+coeiroink.1.7.3）"
+        description: "リリースするバージョン（例: v0.1.3+coeiroink.1.7.3）"
         required: true
         type: string
 
