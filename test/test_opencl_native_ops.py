@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import copy
+
 import pytest
+
+from coeirocore.opencl import OpenCLVitsMode
 
 torch = pytest.importorskip("torch")
 
@@ -257,3 +261,34 @@ def test_weight_norm_interface_dim_zero_matches_cpu():
     actual = torch.ops.aten._weight_norm_interface(_to_ocl(values), _to_ocl(scale), 0)
 
     _assert_same(expected, _to_cpu(actual))
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        torch.nn.Conv1d(4, 6, 3, padding=1, groups=2),
+        torch.nn.ConvTranspose1d(
+            4,
+            6,
+            3,
+            stride=2,
+            padding=1,
+            output_padding=1,
+            groups=2,
+        ),
+    ],
+    ids=("conv1d", "conv_transpose1d"),
+)
+def test_convolution_reuses_backend_across_dynamic_lengths(module):
+    """同じOpenCL畳み込みを異なる時間長で実行しても計算結果を維持する。"""
+
+    torch.manual_seed(4)
+    cpu_module = copy.deepcopy(module)
+    opencl_module = copy.deepcopy(module).to(_OCL_DEVICE)
+
+    for length in (5, 11, 23):
+        input_tensor = torch.randn(2, 4, length)
+        expected = cpu_module(input_tensor)
+        with OpenCLVitsMode():
+            actual = opencl_module(input_tensor.to(_OCL_DEVICE))
+        _assert_same(expected, _to_cpu(actual))

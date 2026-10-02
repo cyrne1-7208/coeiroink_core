@@ -4,17 +4,19 @@ Cyrne1によってフォークされたCOEIROINK Coreです。
 
 MYCOEIROINKのVITSモデルを実行し、Engineへ波形と音素durationを提供します。GUIやHTTPサーバーは含みません。
 
+バージョンは`vX.Y.Z+coeiroink.1.7.3`形式で表記し、現在のバージョンは`v0.1.1+coeiroink.1.7.3`です。
+
 ## 対象環境
 
 CoreとEngineを同じ親ディレクトリへ配置し、利用するバックエンドを1つ選択します。
 
 | OS | バックエンド | uv extra | Python |
 | --- | --- | --- | --- |
-| Linux x64 | CPU | `cpu` | 3.12–3.14 |
-| Linux x64 | CUDA | `cuda` | 3.12–3.14 |
-| Linux x64 | OpenCL | `opencl` | 3.12–3.14 |
-| Windows x64 | CPU | `cpu` | 3.12–3.14 |
-| Windows x64 | CUDA | `cuda` | 3.12–3.14 |
+| Linux x64 | CPU | `cpu` | 3.12 |
+| Linux x64 | CUDA | `cuda` | 3.12 |
+| Linux x64 | OpenCL | `opencl` | 3.12 |
+| Windows x64 | CPU | `cpu` | 3.12 |
+| Windows x64 | CUDA | `cuda` | 3.12 |
 | Windows x64 | DirectML | `directml` | 3.12 |
 
 OpenCLの利用には、GPUベンダーのOpenCL ICD、OpenCLヘッダー、loader、SQLite 3の開発ヘッダーが必要です。
