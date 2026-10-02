@@ -43,7 +43,9 @@ def optimize_espnet_for_inference(text_to_speech: Any) -> None:
     if tts is None or not isinstance(tts, _vits_type()):
         return
 
-    text_to_speech.duration_calculator = _VitsPathDurationCalculator().eval()
+    # 旧Text2Speech経路だけに適用し、継続長を直接返すgenerator-only経路には追加しない。
+    if hasattr(text_to_speech, "duration_calculator"):
+        text_to_speech.duration_calculator = _VitsPathDurationCalculator().eval()
     # VITS generatorは推論専用としてロードされるため、weight normの再パラメータ化を保持する必要がない。
     with torch.no_grad():
         _remove_legacy_weight_norm(tts.generator)
