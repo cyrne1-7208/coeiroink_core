@@ -116,7 +116,7 @@ def _restore_relative_position_encodings(model: torch.nn.Module) -> None:
             continue
         max_length = (position.size(1) + 1) // 2
         module.pe = None
-        # buffer登録されていない相対位置埋め込みはto_empty後もmetaテンソルのまま残るため、設定済みの最大長でCPU上に再構築する。
+        # バッファとして登録されていない相対位置埋め込みは、to_empty後もmetaテンソルのまま残るため、設定済みの最大長でCPU上に作り直す。
         module.extend_pe(torch.empty((1, max_length), dtype=torch.float32))
 
 
@@ -152,25 +152,12 @@ def _checkpoint_state(model_path: Path) -> Mapping[str, torch.Tensor]:
 
 def _load_inference_state(model: torch.nn.Module, model_path: Path) -> None:
     checkpoint = _checkpoint_state(model_path)
-    expected = model.state_dict()
-    missing = set(expected).difference(checkpoint)
-    if missing:
-        names = ", ".join(sorted(missing)[:3])
-        raise RuntimeError(f"VITS checkpoint is missing inference weights: {names}")
+    # 学習専用の重みだけを除き、必要なキーの不足と形状不一致はload_state_dictの厳密検証に任せる。
+    selected = {
+        name: checkpoint[name] for name in model.state_dict() if name in checkpoint
+    }
 
-    selected = {name: checkpoint[name] for name in expected}
-    mismatched = [
-        name
-        for name, destination in expected.items()
-        if destination.shape != selected[name].shape
-    ]
-    if mismatched:
-        names = ", ".join(sorted(mismatched)[:3])
-        raise RuntimeError(
-            f"VITS checkpoint has incompatible inference weights: {names}"
-        )
-
-    # assign=Falseでmmap領域からモデル側へ重みを複製し、推論中もWindowsでチェックポイントのファイルハンドルを保持しない。
+    # Windowsでモデルファイルをロックし続けないよう、assign=Falseでmmap領域から重みをコピーしてファイルハンドルを解放する。
     model.load_state_dict(selected, strict=True, assign=False)
 
 

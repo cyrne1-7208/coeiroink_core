@@ -1,6 +1,5 @@
 import subprocess
 import sys
-import textwrap
 
 import pyopenjtalk
 
@@ -57,28 +56,16 @@ def test_text_to_tokens_does_not_load_the_tts_inference_stack():
     )
 
 
-def test_tts_stack_imports_with_local_kaldiio_guard_and_rejects_kaldi_io():
+def test_tts_stack_does_not_import_optional_kaldiio():
     subprocess.run(
         [
             sys.executable,
             "-c",
-            textwrap.dedent(
-                """
-                import importlib.metadata
-
-                from kaldiio import UnsupportedKaldiDataIOError
-                from espnet2.bin.tts_inference import Text2Speech
-                from espnet2.train.dataset import kaldi_loader
-
-                assert importlib.metadata.version("kaldiio").endswith("+coeiroink.guard1")
-                assert Text2Speech.__name__ == "Text2Speech"
-                try:
-                    kaldi_loader("unused.scp")
-                except UnsupportedKaldiDataIOError:
-                    pass
-                else:
-                    raise AssertionError("Kaldi I/O must fail explicitly")
-                """
+            (
+                "import sys; "
+                "from espnet2.bin.tts_inference import Text2Speech; "
+                "assert Text2Speech.__name__ == 'Text2Speech'; "
+                "assert 'kaldiio' not in sys.modules"
             ),
         ],
         check=True,

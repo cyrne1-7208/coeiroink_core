@@ -39,22 +39,22 @@ runs:
       env:
         BACKEND: ${{ inputs.backend }}
       shell: bash
-      run: uv sync --locked --extra "$BACKEND" --group build
+      run: uv sync --locked --extra "$BACKEND"
 
     - name: Import-check Core and PyTorch
       env:
         BACKEND: ${{ inputs.backend }}
       shell: bash
       run: |
-        uv run --locked --extra "$BACKEND" --group build python -c \
+        uv run --locked --extra "$BACKEND" python -c \
           "import coeirocore, torch; print('coeirocore import ok; torch', torch.__version__)"
 
     - name: Import-check DirectML bindings
       if: inputs.backend == 'directml'
       shell: bash
-      run: uv run --locked --extra directml --group build python -c "import torch_directml; print('torch-directml import ok')"
+      run: uv run --locked --extra directml python -c "import torch_directml; print('torch-directml import ok')"
 
     - name: Import-check OpenCL bindings
       if: inputs.backend == 'opencl'
       shell: bash
-      run: uv run --locked --extra opencl --group build python -c "import pytorch_ocl; print('OpenCL bindings import ok')"
+      run: uv run --locked --extra opencl python -c "import pytorch_ocl; print('OpenCL bindings import ok')"

@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - .github/**
-      - compat/**
       - native/**
       - src/**
       - test/**
@@ -14,7 +13,6 @@ on:
   pull_request:
     paths:
       - .github/**
-      - compat/**
       - native/**
       - src/**
       - test/**

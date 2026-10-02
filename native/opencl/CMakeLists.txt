@@ -11,7 +11,7 @@ endif()
 find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 find_package(SQLite3 REQUIRED)
 
-# OpenCL SDKはビルドホストから参照し、wheelへloaderやベンダードライバを同梱しない。
+# OpenCL SDKはビルド環境のものを使い、wheelにはローダーやGPUドライバを含めない。
 if(OCL_PATH AND NOT OCL_PATH MATCHES "-NOTFOUND$")
   find_path(
     COEIROINK_OPENCL_INCLUDE_DIR
@@ -42,7 +42,7 @@ else()
   find_library(COEIROINK_OPENCL_LIBRARY NAMES OpenCL REQUIRED)
 endif()
 
-# 上流も同じ変数名を参照するため、検証済みのパスをサブプロジェクトへ渡す。
+# 上流も同じ変数名を使うため、ここで見つけたパスをサブプロジェクトへ渡す。
 set(OCL_PATH "${COEIROINK_OPENCL_INCLUDE_DIR}" CACHE PATH "OpenCL include directory" FORCE)
 set(OCL_LIB "${COEIROINK_OPENCL_LIBRARY}" CACHE FILEPATH "OpenCL loader library" FORCE)
 # DLPrimitivesのキャッシュ機能を有効にし、対応するデバイスでは再起動後もコンパイル結果を再利用する。
@@ -52,7 +52,7 @@ set(SQLITE3_LIB "${SQLite3_LIBRARIES}" CACHE FILEPATH "SQLite3 library" FORCE)
 set(BUILD_CORE_ONLY ON CACHE BOOL "Build only DLPrimitives core" FORCE)
 set(DLPRIM_STATIC_BUILD ON CACHE BOOL "Link DLPrimitives statically" FORCE)
 
-# 公開MIT実装を固定し、BatchSGEMMにおける値の未初期化問題と行列積・畳み込みの入力長依存コンパイルを修正する。
+# MITライセンスで公開された実装を固定し、BatchSGEMMの未初期化値と、入力長ごとの再コンパイルを修正する。
 FetchContent_Declare(
   pytorch_dlprim
   GIT_REPOSITORY https://github.com/artyom-beilis/pytorch_dlprim.git
@@ -70,7 +70,7 @@ FetchContent_MakeAvailable(pytorch_dlprim)
 target_sources(pt_ocl PRIVATE "${CMAKE_CURRENT_LIST_DIR}/src/vits_ops.cpp")
 target_include_directories(pt_ocl PRIVATE "${pytorch_dlprim_SOURCE_DIR}/src")
 
-# Linux拡張は実行中インタープリターからPython C APIを解決し、libpythonへ直接依存させない。
+# Python C APIは実行中のインタープリターから取得し、Linux拡張をlibpythonへ直接リンクしない。
 get_target_property(_coeiroink_pt_ocl_link_libraries pt_ocl LINK_LIBRARIES)
 list(REMOVE_ITEM _coeiroink_pt_ocl_link_libraries ${Python3_LIBRARIES})
 set_property(TARGET pt_ocl PROPERTY LINK_LIBRARIES "${_coeiroink_pt_ocl_link_libraries}")

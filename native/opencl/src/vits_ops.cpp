@@ -23,7 +23,7 @@ using at::Tensor;
 
 namespace {
 
-// VITS推論で必要な索引演算だけをOpenCL上で実行し、範囲外アクセスはinvalidフラグ経由でホストへ通知する。
+// VITS推論で必要なインデックス操作だけをOpenCL上で実行し、範囲外アクセスはinvalidフラグでホストへ通知する。
 constexpr char kIndexSource[] = R"CLC(
 __kernel void gather_value(
     __global const VALUE_TYPE *input,
@@ -381,7 +381,7 @@ void check_error_flag(
     const Tensor& reference,
     const Tensor& flag,
     const char* message) {
-    // OpenCLカーネル内では例外を送出できないため、索引検証時だけ小さなフラグを同期的に読み出す。
+    // OpenCLカーネル内では例外を送出できないため、インデックスの検証時だけ小さなフラグを同期的に読み出す。
     uint32_t value = 0;
     auto execution = ptdlprim::getExecutionContext(reference);
     execution.queue().enqueueReadBuffer(
@@ -390,7 +390,7 @@ void check_error_flag(
 }
 
 uint32_t count_true_values(const Tensor& mask) {
-    // bool索引の出力形状はデータ依存なので、GPUで数えた要素数だけを同期的に読み出す。
+    // boolインデックスの出力形状はデータに依存するため、GPUで数えた要素数だけを同期的に読み出す。
     TORCH_CHECK(mask.scalar_type() == at::kBool, "OpenCL mask must use bool");
     TORCH_CHECK(
         mask.numel() <= std::numeric_limits<uint32_t>::max(),
@@ -428,7 +428,7 @@ std::array<cl_ulong, 8> padded_dimensions(at::IntArrayRef sizes) {
 Tensor single_index(
     const Tensor& self,
     const c10::List<c10::optional<Tensor>>& indices) {
-    // 現行VITSが使う軸0の単一索引だけを専用実装し、この演算内の不正・未対応な索引形式は明示的に拒否する。
+    // 現行VITSが使う軸0の単一インデックスだけを実装し、不正または未対応の形式は明示的に拒否する。
     TORCH_CHECK(!indices.empty(), "OpenCL indexing requires one index tensor");
     TORCH_CHECK(indices.get(0).has_value(), "OpenCL indexing requires an index at axis 0");
     for (size_t axis = 1; axis < indices.size(); ++axis) {
@@ -579,7 +579,7 @@ Tensor index_tensor(
     const c10::List<c10::optional<Tensor>>& indices) {
     Tensor index = single_index(self, indices);
     if (index.scalar_type() == at::kLong) {
-        // int64索引はPython互換の負数折返しを有効にしたgatherとして実行する。
+        // int64インデックスは、Pythonと同じく負の値を末尾から数えるgatherとして実行する。
         std::vector<int64_t> sizes = shape(index.sizes());
         sizes.insert(sizes.end(), self.sizes().begin() + 1, self.sizes().end());
         Tensor out = new_tensor(sizes, self, self.scalar_type());
@@ -612,7 +612,7 @@ Tensor index_tensor(
         return out;
     }
 
-    // bool索引は選択数から出力形状を確定した後、選択された行をGPU上で詰める。
+    // boolインデックスは選択数から出力形状を決め、選択された行をGPU上で詰める。
     TORCH_CHECK(index.scalar_type() == at::kBool, "OpenCL index must use bool or int64");
     TORCH_CHECK(index.dim() <= self.dim(), "boolean index has too many dimensions");
     for (int64_t axis = 0; axis < index.dim(); ++axis) {
