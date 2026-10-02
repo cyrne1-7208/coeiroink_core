@@ -749,32 +749,39 @@ class AudioManager:
     @staticmethod
     def pitch_intonation(wav, fs, pitch_scale, intonation_scale):
         f0, sp, ap = AudioManager.get_world(wav.astype(np.float64), fs)
-        # pitch
+        # ピッチを半音単位で移動します。
         if pitch_scale != 0:
             f0 *= 2 ** pitch_scale
-        # intonation
+        # 抑揚は有声フレームの分布だけを調整します。
         if intonation_scale != 1:
-            m = f0.mean()
-            s = f0.std()
-            f0_tmp = (f0 - m) / s
-            f0 = (f0_tmp * (s * intonation_scale)) + m
+            # WORLDは無声音フレームをF0=0で表すため、平均値に含めず抑揚処理で有音化もしません。
+            # VOICEVOX系の処理も同じ理由で有声モーラのピッチだけを調整します。
+            voiced = f0 > 0
+            if np.any(voiced):
+                voiced_f0 = f0[voiced]
+                mean = float(voiced_f0.mean())
+                deviation = voiced_f0 - mean
+                f0[voiced] = mean + deviation * intonation_scale
         return pw.synthesize(f0, sp, ap, fs).astype(np.float32)
 
     @staticmethod
     def sil(wav, fs, pre_phoneme_length, post_phoneme_length):
-        pre_pause = np.zeros(int(fs * pre_phoneme_length))
-        post_pause = np.zeros(int(fs * post_phoneme_length))
+        pre_pause = np.zeros(int(fs * pre_phoneme_length), dtype=wav.dtype)
+        post_pause = np.zeros(int(fs * post_phoneme_length), dtype=wav.dtype)
         return np.concatenate([pre_pause, wav, post_pause], 0)
 
     @staticmethod
     def resampling(wav, fs, output_sampling_rate):
+        # Resampyの並列カーネルは1次元波形では逐次カーネルと数値的に同じで、44.1kHz以外の応答を高速に処理できます。
         return resampy.resample(
             wav,
             fs,
             output_sampling_rate,
             filter="kaiser_fast",
+            parallel=True,
         )
 
+    # WORLD処理の基本的な呼び出し順を確認するための公開サンプルです。
     # https://github.com/JeremyCCHsu/Python-Wrapper-for-World-Vocoder/blob/3a7c99a32c717deb8e66bde64b5e60b1a4afce79/demo/demo.py
     @staticmethod
     def get_world(x, fs):
