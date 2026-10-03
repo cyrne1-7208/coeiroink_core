@@ -1,5 +1,5 @@
 diff --git a/src/gemm.cpp b/src/gemm.cpp
-index fbe2e6a..c03b355 100644
+index 6b66329..6e35188 100644
 --- a/src/gemm.cpp
 +++ b/src/gemm.cpp
 @@ -12,6 +12,10 @@
@@ -9,11 +9,11 @@ index fbe2e6a..c03b355 100644
 +
 +    // 行列積のタイル構成を入力長から切り離し、動的な音声長ごとのOpenCL再コンパイルを防ぐ。
 +    constexpr int gemm_shape_independent_dimension = 64;
-+    constexpr int conv_shape_independent_n = 256;
++    constexpr int conv_shape_independent_dimension = 256;
      
      class StandardSGEMMBase  {
      public:
-@@ -245,9 +249,16 @@ namespace gpu {
+@@ -248,9 +252,16 @@ namespace gpu {
                          int bias,
                          StandardActivations act,
                          int im2col_chan = 0) : 
@@ -32,7 +32,7 @@ index fbe2e6a..c03b355 100644
              cl::Program const &prog = Cache::instance().get_program(ctx,"sgemm",
                                          "TILE_SIZE_M",tile_size_m_,
                                          "TILE_SIZE_N",tile_size_n_,
-@@ -352,10 +363,16 @@ namespace gpu {
+@@ -356,10 +367,16 @@ namespace gpu {
                          int M,int N,int K,
                          StandardActivations &act
                          ):
@@ -51,24 +51,30 @@ index fbe2e6a..c03b355 100644
              cl::Program const &prog = Cache::instance().get_program(ctx,"sgemm",
                                          "BATCH_GEMM",1,
                                          "TILE_SIZE_M",tile_size_m_,
-@@ -422,7 +439,6 @@ namespace gpu {
-     private:
-         cl::Kernel kernel_;
-         bool bias_;
--        bool zorder_;
-     };
-     
- 
-@@ -438,7 +454,7 @@ namespace gpu {
+@@ -442,7 +459,21 @@ namespace gpu {
                      int bias,
                      StandardActivations act,
                      int im2col_chan = 0) :
 -                StandardSGEMMBase(ctx,M,N,K,false,false,act)
-+                StandardSGEMMBase(ctx,M,conv_shape_independent_n,K,false,false,act)
++                // 畳み込み種別ごとに入力長で変わる次元だけを固定し、チャンネル数によるタイル最適化は保つ。
++                StandardSGEMMBase(
++                    ctx,
++                    op_mode == GemmOpMode::backward_data
++                        ? conv_shape_independent_dimension
++                        : M,
++                    op_mode == GemmOpMode::forward
++                        ? conv_shape_independent_dimension
++                        : N,
++                    op_mode == GemmOpMode::backward_filter
++                        ? conv_shape_independent_dimension
++                        : K,
++                    false,
++                    false,
++                    act)
          {
              cl::Program const &prog = Cache::instance().get_program(ctx,"sgemm",
                                          "TILE_SIZE_M",tile_size_m_,
-@@ -450,7 +466,6 @@ namespace gpu {
+@@ -455,7 +486,6 @@ namespace gpu {
                                          "BIAS",bias,
                                          "ATRANS",int(atrans),
                                          "BTRANS",int(btrans),
@@ -76,7 +82,7 @@ index fbe2e6a..c03b355 100644
                                          "CONVGEMM",int(op_mode),
                                          "KERN_H",  kernel[0], "KERN_W",kernel[1],
                                          "DILATE_H",dilate[0], "DILATE_W",dilate[1],
-@@ -458,10 +473,6 @@ namespace gpu {
+@@ -463,10 +493,6 @@ namespace gpu {
                                          "STRIDE_H",stride[0], "STRIDE_W",stride[1],
                                          "GROUPS",groups,
                                          "CHANNELS_IN",src_channels,
@@ -87,7 +93,7 @@ index fbe2e6a..c03b355 100644
                                          "REDUCE_K",reduce_k_,
                                          "ACTIVATION",int(act));
              if(op_mode == GemmOpMode::backward_data) {
-@@ -482,6 +493,11 @@ namespace gpu {
+@@ -487,6 +513,11 @@ namespace gpu {
              s_ = stride[0];
              ci_ = src_channels;
              w_ = src_cols;
@@ -99,7 +105,7 @@ index fbe2e6a..c03b355 100644
          }
          virtual void gemm(int M,int N,int K,
                            cl::Buffer &a,
-@@ -531,6 +547,11 @@ namespace gpu {
+@@ -536,6 +567,11 @@ namespace gpu {
              else {
                  DLPRIM_CHECK(bias == nullptr);
              }
@@ -111,7 +117,7 @@ index fbe2e6a..c03b355 100644
             
              int ls0 = tile_size_m_ / block_size_m_;
              int ls1 = tile_size_n_ / block_size_n_; 
-@@ -562,6 +583,7 @@ namespace gpu {
+@@ -567,6 +603,7 @@ namespace gpu {
          int md_;
          int w_;
          int ci_,co_,k_,pad_,s_;
@@ -120,7 +126,7 @@ index fbe2e6a..c03b355 100644
  
  
 diff --git a/src/kernels/sgemm.cl b/src/kernels/sgemm.cl
-index 290f248..5280a24 100644
+index 5a175b4..c7683e4 100644
 --- a/src/kernels/sgemm.cl
 +++ b/src/kernels/sgemm.cl
 @@ -70,18 +70,20 @@
@@ -231,7 +237,7 @@ index 290f248..5280a24 100644
      #endif
  
  #endif
-@@ -292,7 +294,6 @@ int zorder_b(int x)
+@@ -296,7 +298,6 @@ int zorder_b(int x)
      return zorder_a(x>>1);
  }
  
@@ -239,7 +245,7 @@ index 290f248..5280a24 100644
  __kernel 
  #if INTEL_PLATFORM == 1
  __attribute__((intel_reqd_sub_group_size(8)))
-@@ -325,6 +326,9 @@ void    sgemm(
+@@ -329,6 +330,9 @@ void    sgemm(
          float beta_factor
  #if BIAS != 0
          , __global const float * restrict bias,ulong offset_bias
@@ -249,7 +255,7 @@ index 290f248..5280a24 100644
  #endif
          )
  {
-@@ -346,15 +350,15 @@ void    sgemm(
+@@ -350,15 +354,15 @@ void    sgemm(
      int group = get_global_id(DIM_G) / REDUCE_K;
      #if CONVGEMM == 1
          A += M*K*group;
@@ -269,7 +275,7 @@ index 290f248..5280a24 100644
          int step_g_w = M*(CHANNELS_IN*KERN_W*KERN_H);
          
          A += step_g_y * group;
-@@ -362,8 +366,8 @@ void    sgemm(
+@@ -366,8 +370,8 @@ void    sgemm(
          C += step_g_w * group;
      #elif CONVGEMM == 3
          // K = channels_out / group
@@ -280,7 +286,7 @@ index 290f248..5280a24 100644
          int step_g_w = K*(CHANNELS_IN*KERN_W*KERN_H);
          
          A += step_g_y * group;
-@@ -694,9 +698,9 @@ void    sgemm(
+@@ -698,9 +702,9 @@ void    sgemm(
              if(col + dc >= N)
                  continue;
              int matrix_col = col + dc;
@@ -293,7 +299,7 @@ index 290f248..5280a24 100644
              #pragma unroll
              for(int dr=0;dr<BLOCK_SIZE_M;dr++) {
                  if(row+dr < M) {
-@@ -721,7 +725,7 @@ void    sgemm(
+@@ -725,7 +729,7 @@ void    sgemm(
              for(int dc=0;dc<BLOCK_SIZE_N;dc++) {
                  if(row + dr < M && col+dc < N) {
                      #if CONVGEMM == 3
@@ -302,7 +308,7 @@ index 290f248..5280a24 100644
                      #else
                          int index = (row+dr)*ldc+col+dc;
                          #if REDUCE_K > 1
-@@ -739,5 +743,3 @@ void    sgemm(
+@@ -743,5 +747,3 @@ void    sgemm(
      }
  #endif
  }

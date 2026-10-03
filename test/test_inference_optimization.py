@@ -94,3 +94,7 @@ def test_espnet_model_resident_bytes_includes_unregistered_position_data() -> No
     model.tts_model = SimpleNamespace(model=FakeModel())
 
     assert model.resident_bytes == 5 * torch.tensor(1.0).element_size()
+
+    # ESPnetは長い入力に合わせて未登録の位置埋め込みを拡張するため、読み込み時の値を固定しない。
+    model.tts_model.model.pe = torch.ones(7)
+    assert model.resident_bytes == 9 * torch.tensor(1.0).element_size()

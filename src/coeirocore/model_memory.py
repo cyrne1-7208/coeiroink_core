@@ -109,7 +109,8 @@ def _opencl_total_memory(selection: DeviceSelection) -> int:
     import pyopencl as cl
 
     platforms = cl.get_platforms()
-    assert selection.platform_index is not None
+    if selection.platform_index is None:
+        raise ValueError("OpenCL memory detection requires a platform index")
     device = platforms[selection.platform_index].get_devices()[selection.device_index]
     return int(device.global_mem_size)
 

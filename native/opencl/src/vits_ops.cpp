@@ -2,6 +2,7 @@
 #include "utils.h"
 
 #include <ATen/ATen.h>
+#include <ATen/ExpandUtils.h>
 #include <ATen/MemoryOverlap.h>
 #include <dlprim/core/activation.hpp>
 #include <dlprim/core/pointwise.hpp>
@@ -322,6 +323,13 @@ Tensor contiguous_on_device(
     return value.contiguous();
 }
 
+void check_broadcastable_to(const Tensor& value, const Tensor& target) {
+    auto broadcast_shape = at::infer_size_dimvector(value.sizes(), target.sizes());
+    TORCH_CHECK(
+        c10::IntArrayRef(broadcast_shape).equals(target.sizes()),
+        "tensor cannot be broadcast to the target shape");
+}
+
 std::string opencl_type(ScalarType dtype) {
     return dlprim::data_type_to_opencl_type(ptdlprim::todp(dtype), true);
 }
@@ -580,6 +588,7 @@ Tensor index_tensor(
     Tensor index = single_index(self, indices);
     if (index.scalar_type() == at::kLong) {
         // int64インデックスは、Pythonと同じく負の値を末尾から数えるgatherとして実行する。
+        TORCH_CHECK(self.dim() > 0, "too many indices for tensor of dimension 0");
         std::vector<int64_t> sizes = shape(index.sizes());
         sizes.insert(sizes.end(), self.sizes().begin() + 1, self.sizes().end());
         Tensor out = new_tensor(sizes, self, self.scalar_type());
@@ -821,6 +830,10 @@ Tensor relu(const Tensor& self) {
 Tensor& masked_fill(Tensor& self, const Tensor& mask, const Scalar& value) {
     TORCH_CHECK(mask.scalar_type() == at::kBool, "masked_fill mask must use bool");
     TORCH_CHECK(mask.device() == self.device(), "masked_fill mask must use the input device");
+    if (self.numel() == 0) {
+        check_broadcastable_to(mask, self);
+        return self;
+    }
     Tensor target = self.contiguous();
     Tensor contiguous_mask = mask.contiguous();
     dlprim::core::pointwise_operation_broadcast(
@@ -849,6 +862,11 @@ Tensor& clamp_tensor_out(
     };
     check_bound(minimum);
     check_bound(maximum);
+    if (self.numel() == 0) {
+        if (minimum) check_broadcastable_to(*minimum, self);
+        if (maximum) check_broadcastable_to(*maximum, self);
+        return out;
+    }
     Tensor input = self.contiguous();
     Tensor output = out.contiguous();
     if (!minimum && !maximum) {
@@ -977,6 +995,7 @@ std::tuple<Tensor, Tensor> weight_norm(const Tensor& v, const Tensor& g, int64_t
     TORCH_CHECK(g.scalar_type() == at::kFloat, "weight_norm g must use float32");
     TORCH_CHECK(g.device() == v.device(), "weight_norm tensors must use the same device");
     int64_t groups = v.size(0);
+    TORCH_CHECK(groups > 0, "weight_norm requires a non-empty dimension 0");
     TORCH_CHECK(g.numel() == groups, "weight_norm g shape does not match v");
 
     Tensor input = v.contiguous();

@@ -8,7 +8,7 @@ import threading
 from collections.abc import Iterable
 from contextlib import nullcontext
 from dataclasses import dataclass
-from functools import cached_property, lru_cache
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -523,9 +523,9 @@ class EspnetModel:
             unk_symbol="<unk>",
         )
 
-    @cached_property
+    @property
     def resident_bytes(self) -> int:
-        """メモリ判定に使う、モデルの常駐テンソル量の概算値を返す。"""
+        """メモリ判定時点の、モデルの常駐テンソル量の概算値を返す。"""
 
         model = self.tts_model.model
         tensors = [*model.parameters(), *model.buffers()]

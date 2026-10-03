@@ -11,6 +11,10 @@ endif()
 find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 find_package(SQLite3 REQUIRED)
 
+# SDKの指定を変更した再構成でも、前回の探索結果を再利用しない。
+unset(COEIROINK_OPENCL_INCLUDE_DIR CACHE)
+unset(COEIROINK_OPENCL_LIBRARY CACHE)
+
 # OpenCL SDKはビルド環境のものを使い、wheelにはローダーやGPUドライバを含めない。
 if(OCL_PATH AND NOT OCL_PATH MATCHES "-NOTFOUND$")
   find_path(
@@ -52,11 +56,11 @@ set(SQLITE3_LIB "${SQLite3_LIBRARIES}" CACHE FILEPATH "SQLite3 library" FORCE)
 set(BUILD_CORE_ONLY ON CACHE BOOL "Build only DLPrimitives core" FORCE)
 set(DLPRIM_STATIC_BUILD ON CACHE BOOL "Link DLPrimitives statically" FORCE)
 
-# MITライセンスで公開された実装を固定し、BatchSGEMMの未初期化値と、入力長ごとの再コンパイルを修正する。
+# 上流のGPU修正を含むコミットを固定し、入力長ごとの再コンパイルだけを追加パッチで防ぐ。
 FetchContent_Declare(
   pytorch_dlprim
   GIT_REPOSITORY https://github.com/artyom-beilis/pytorch_dlprim.git
-  GIT_TAG 1af48d4966d83b5b43344288999343e690ea7037
+  GIT_TAG 47305aa87aeb8dc450c9a91b559d5784c171b960
   GIT_SHALLOW FALSE
   GIT_SUBMODULES_RECURSE TRUE
   PATCH_COMMAND

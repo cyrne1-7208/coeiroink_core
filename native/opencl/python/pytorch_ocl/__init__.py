@@ -38,7 +38,13 @@ def _device_index(device: int | str | torch.device | None) -> int:
 
 def device_count() -> int:
     # pytorch_dlprimのPrivateUse1 Hooksはdevice_countを実装していないため、Coreと同じOpenCL列挙順を使う。
-    return sum(len(platform.get_devices()) for platform in cl.get_platforms())
+    try:
+        platforms = cl.get_platforms()
+    except cl.LogicError as error:
+        if error.code == cl.status_code.PLATFORM_NOT_FOUND_KHR:
+            return 0
+        raise
+    return sum(len(platform.get_devices()) for platform in platforms)
 
 
 def is_available() -> bool:

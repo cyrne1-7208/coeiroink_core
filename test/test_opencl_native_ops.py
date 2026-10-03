@@ -121,6 +121,15 @@ def test_axis_zero_negative_integer_index_matches_cpu():
     _assert_same(expected, _to_cpu(actual))
 
 
+def test_scalar_integer_index_raises_cleanly():
+    scalar = _to_ocl(torch.tensor(1.0))
+    index = _to_ocl(torch.tensor(0))
+
+    # Pythonの添字処理を経由せず、OpenCL実装の次元チェックを検証する。
+    with pytest.raises(RuntimeError, match="dimension 0"):
+        torch.ops.aten.index.Tensor(scalar, [index])
+
+
 @pytest.mark.parametrize("operation", ["gather", "index_select", "index"])
 def test_invalid_integer_indices_raise(operation):
     values = torch.arange(12, dtype=torch.float32).reshape(3, 4)
@@ -228,6 +237,20 @@ def test_tensor_clamp_matches_cpu():
     _assert_same(expected, _to_cpu(actual))
 
 
+def test_empty_pointwise_operations_match_cpu():
+    values = torch.empty((0, 3), dtype=torch.float32)
+    mask = torch.empty((1, 3), dtype=torch.bool)
+    minimum = torch.empty((1, 3), dtype=torch.float32)
+
+    expected_fill = values.clone().masked_fill_(mask, -1.0)
+    actual_fill = _to_ocl(values).clone().masked_fill_(_to_ocl(mask), -1.0)
+    _assert_same(expected_fill, _to_cpu(actual_fill))
+
+    expected_clamp = torch.clamp(values, min=minimum)
+    actual_clamp = torch.clamp(_to_ocl(values), min=_to_ocl(minimum))
+    _assert_same(expected_clamp, _to_cpu(actual_clamp))
+
+
 def test_last_dimension_float32_max_matches_cpu():
     values = torch.tensor(
         [[-2.0, 4.0, 4.0, 1.0], [8.0, -1.0, 3.0, 2.0]], dtype=torch.float32
@@ -272,6 +295,14 @@ def test_weight_norm_interface_dim_zero_matches_cpu():
     actual = torch.ops.aten._weight_norm_interface(_to_ocl(values), _to_ocl(scale), 0)
 
     _assert_same(expected, _to_cpu(actual))
+
+
+def test_empty_weight_norm_raises_cleanly():
+    values = _to_ocl(torch.empty((0, 3), dtype=torch.float32))
+    scale = _to_ocl(torch.empty(0, dtype=torch.float32))
+
+    with pytest.raises(RuntimeError, match="non-empty dimension 0"):
+        torch.ops.aten._weight_norm_interface(values, scale, 0)
 
 
 @pytest.mark.parametrize(

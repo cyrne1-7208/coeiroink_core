@@ -18,7 +18,7 @@ dependencies = [
     "jaconv>=0.4,<1",
     # ESPnetのjaconvクリーナーが読み込むtacotron_cleanerを提供する。
     "espnet-tts-frontend>=0.0.3,<1",
-    "numba>=0.67,<0.68",
+    "numba>=0.68,<0.69",
     "numpy>=2.3,<2.4",
     "pyopenjtalk @ git+https://github.com/r9y9/pyopenjtalk.git@v0.4.1",
     "pydantic>=2.13,<3",
@@ -76,6 +76,8 @@ dev = [
 ]
 [tool.uv]
 default-groups = []
+# Engineと同じlibrosaを使い、音声処理のメジャー更新を避ける。
+constraint-dependencies = ["librosa<1"]
 # 異なるバックエンドのwheelが同じ環境に入らないよう、各extraを同時に指定できない設定にする。
 conflicts = [
     [
