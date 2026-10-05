@@ -150,7 +150,7 @@ url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.setuptools]
-license-files = ["LICENSE", "licenses/GPL-3.0.txt"]
+license-files = ["LICENSE", "licenses/GPL-3.0.txt", "licenses/SOURCES.md"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

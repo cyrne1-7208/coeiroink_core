@@ -2,73 +2,61 @@
 
 Cyrne1によってフォークされたCOEIROINK Coreです。
 
-MYCOEIROINKのVITSモデルを読み込み、音声波形と音素の継続時間をEngineへ返します。GUIとHTTPサーバーは含みません。
+## 動作環境
 
-## 対象環境
+Python 3.12を使用します。
 
-利用するバックエンドを1つ選択します。Engineと連携する場合は、CoreとEngineを同じ親ディレクトリに配置してください。
-
-| OS | バックエンド | uv extra | Python |
-| --- | --- | --- | --- |
-| Linux x64 | CPU | `cpu` | 3.12 |
-| Linux x64 | CUDA | `cuda` | 3.12 |
-| Linux x64 | OpenCL | `opencl` | 3.12 |
-| Windows x64 | CPU | `cpu` | 3.12 |
-| Windows x64 | CUDA | `cuda` | 3.12 |
-| Windows x64 | DirectML | `directml` | 3.12 |
-
-## 事前に必要なもの
-
-このリポジトリのソースから`uv sync`でセットアップする場合は、次のものが必要です。
-
-- [uv](https://docs.astral.sh/uv/)
-- [Git](https://git-scm.com/)
-- C/C++のビルド環境（LinuxではGCC/G++、WindowsではMSVC Build Tools）
-- インターネット接続（初回セットアップではPyPI、GitHub、PyTorchのパッケージ配布先に接続します）
-- CUDA版：CUDA 12.8に対応するNVIDIAドライバ
-- OpenCL版：GPUベンダーのOpenCLドライバ、OpenCL C++ヘッダー、ICDローダー、SQLite 3の開発用ヘッダー
-- DirectML版：Windows 10 バージョン1709以降、DirectX 12対応GPU、最新のGPUドライバ
-
-Pythonは3.12を使用します。インストールされていない場合は、`uv`がセットアップ時に取得します。
+| バックエンド | OS（x64） | GPUの要件 |
+| --- | --- | --- |
+| CPU | Linux・Windows | 不要 |
+| CUDA | Linux・Windows | CUDA 12.8対応のNVIDIAドライバ |
+| OpenCL | Linux | OpenCL対応GPUとドライバ |
+| DirectML | Windows | Windows 10 バージョン1709以降・DirectX 12対応GPUとドライバ |
 
 ## セットアップ
 
-`--extra`には、使用するバックエンドを指定します。複数のバックエンドを同時に指定することはできません。
+ソースから実行するには、[uv](https://docs.astral.sh/uv/)、[Git](https://git-scm.com/)、C/C++のビルド環境が必要です。Python 3.12は、インストールされていなければuvが取得します。
 
-依存関係は`pyproject.toml`で定義し、`uv.lock`で固定しています。LinuxまたはWindowsのCPU環境では次のコマンドを実行します。
+OpenCL版には追加で、OpenCL C++ヘッダー、ICDローダー、SQLite 3の開発用ヘッダーも必要です。
+
+Coreのディレクトリで実行してください。
 
 ```bash
 uv sync --locked --extra cpu
 ```
 
-CUDAまたはOpenCLを利用する場合は、`cpu`を`cuda`または`opencl`に置き換えてください。Windows DirectMLでは次のコマンドを実行します。
+GPU版では、`cpu`を`cuda`、`opencl`、`directml`のいずれかに置き換えます。バックエンドは1つだけ選択してください。
 
-```powershell
-uv sync --python 3.12 --locked --extra directml
+Coreのディレクトリで、モデルを入れる`speaker_info`フォルダを作成してください。
+
+```bash
+mkdir speaker_info
 ```
 
-`speaker_info/`ディレクトリを作成し、展開したMYCOEIROINKモデルのディレクトリを配置します。旧形式（`config.yaml`の`version: 0.10.3`）とCOEIROINK v2形式のモデルに対応し、`speakerUuid`と`styleId`の組でモデルを識別します。
+MYCOEIROINKのZIPを展開し、モデルのフォルダを名前を変えずに入れてください。
 
-## モデル保持とメモリ管理
+```text
+coeiroink_core/
+└── speaker_info/
+    └── 展開したモデルのフォルダ/
+```
 
-Coreでは`AudioManager(max_loaded_models=...)`、Engineでは`--max-loaded-models`で、同時に保持するモデル数を指定します。既定値は1です。
+HTTP APIから利用する場合は、[coeiroink_engine](https://github.com/cyrne1-7208/coeiroink_engine)も同じ親ディレクトリに配置してください。
 
-- 数値を指定すると、最近使ったモデルから順にその数まで保持します。
-- Coreで`None`、Engineで`all`を指定すると、起動時に全モデルを読み込みます。
+## モデルの保持数
 
-空きメモリが足りない場合は、設定にかかわらず、最後に使ってから最も時間が経ったモデルを解放します。そのため、すべてのモデルがメモリに収まらない環境では、`all`を指定しても一部のモデルが解放されます。
+`AudioManager`の`max_loaded_models`で指定します。既定では、最後に使った1モデルを保持します。
 
-モデルは既定で、VITSの推論に必要な重みだけを読み込みます。合成結果を変えずに、モデル読み込み時のメモリ使用量を抑えます。
+- 正の整数：最近使ったモデルを、指定した数まで保持します。
+- `None`：起動時に全モデルを読み込みます。
 
-## 実験的な音声補正
+空きメモリが足りなくなると、使用していない期間が長いモデルから解放します。Engineから使う場合は、`--max-loaded-models`で指定してください。
 
-母音の音色や周期の細かな揺れを抑える処理を、`AudioManager(voice_smoothing=True, ...)`で有効にできます。既定では無効です。必要なライブラリは各バックエンド用のuv extraに含まれます。Engineから使う場合は、`--experimental voice-smoothing`を指定します。
+## 実験的な機能
 
-補正は母音の冒頭を避け、音素区間と波形全体の平均音量を保ちます。`synthesis`にのみ適用され、`predict`と`predict_with_duration`は補正前の波形を返します。CPUとDirectMLではCPU上のParselmouthとSciPyを使い、CUDAとOpenCLでは選択したGPU上で処理します。
+`AudioManager(voice_smoothing=True, ...)`で、母音の音色や周期の細かな揺れを抑えます。既定では無効です。Engineから使う場合は、`--experimental voice-smoothing`を指定してください。
 
-Engineは解析済みの音素列をCoreへ渡します。Coreへ文字列を直接渡す場合は、補正の有無にかかわらず、モデルが指定するESPnetのTTS前処理ライブラリも必要です。
-
-CPUとDirectMLの周期検出には、[Parselmouth](https://github.com/YannickJadoul/Parselmouth)（`praat-parselmouth`、GPL-3.0-or-later）を利用します。追加で導入するライブラリにも、それぞれのライセンスが適用されます。
+`synthesis`にのみ適用され、`predict`と`predict_with_duration`には適用されません。CPU・DirectMLではCPU、CUDA・OpenCLではGPUで処理します。
 
 ## テスト
 
@@ -79,7 +67,9 @@ uv run --locked --extra cpu --group dev pytest -q
 
 ## ライセンス
 
-本リポジトリのソースコードは、個別にライセンスが示されているものを除き、LGPL-3.0-onlyです。詳細は[LICENSE](./LICENSE)を参照してください。LGPLv3が参照するGPLv3本文は[licenses/GPL-3.0.txt](./licenses/GPL-3.0.txt)に収録しています。
+個別にライセンスが示されているものを除き、ソースコードはLGPL-3.0-onlyです。詳細は[LICENSE](./LICENSE)を参照してください。LGPLv3が参照するGPLv3本文は[licenses/GPL-3.0.txt](./licenses/GPL-3.0.txt)にあります。
+
+同梱ソースと再ビルド方法は [licenses/SOURCES.md](./licenses/SOURCES.md) を参照してください。
 
 ## 謝辞
 
