@@ -6,6 +6,7 @@ import os
 import sys
 import threading
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from dataclasses import dataclass
 from functools import lru_cache
@@ -1204,6 +1205,10 @@ class AudioManager:
 
         world = load_pyworld()
         f0_h, t_h = _world_f0(x, fs)
-        sp_h = world.cheaptrick(x, f0_h, t_h, fs)
-        ap_h = world.d4c(x, f0_h, t_h, fs)
+        # cheaptrickとd4cは互いに独立でGILを解放するため、並行実行しても結果は直列実行と一致する。
+        # スレッドの起動コストは解析時間に比べて無視できるため、常駐させず呼び出しごとに作る。
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            sp_future = executor.submit(world.cheaptrick, x, f0_h, t_h, fs)
+            ap_h = world.d4c(x, f0_h, t_h, fs)
+            sp_h = sp_future.result()
         return f0_h, sp_h, ap_h

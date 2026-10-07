@@ -969,3 +969,42 @@ def test_rejects_invalid_synthesis_parameters(
 
     with pytest.raises(InvalidSynthesisParameterError):
         manager.synthesis(["^", "a", "$"], style_id=STYLE_ID, **{parameter: value})
+
+
+def _synthetic_voiced_wave(sampling_rate: int, seconds: float) -> np.ndarray:
+    rng = np.random.default_rng(0)
+    time_axis = np.arange(int(sampling_rate * seconds)) / sampling_rate
+    f0 = 150 + 30 * np.sin(2 * np.pi * 0.7 * time_axis)
+    phase = 2 * np.pi * np.cumsum(f0) / sampling_rate
+    wave = sum(np.sin(k * phase) / k for k in range(1, 6))
+    return 0.2 * wave + 1e-3 * rng.standard_normal(time_axis.shape)
+
+
+def test_get_world_matches_serial_pyworld_analysis():
+    sampling_rate = 44100
+    wave = _synthetic_voiced_wave(sampling_rate, 1.5)
+    world = coeiro_manager.load_pyworld()
+    f0, time_axis = world.harvest(wave, sampling_rate)
+    f0 = world.stonemask(wave, f0, time_axis, sampling_rate)
+    expected_sp = world.cheaptrick(wave, f0, time_axis, sampling_rate)
+    expected_ap = world.d4c(wave, f0, time_axis, sampling_rate)
+
+    actual_f0, actual_sp, actual_ap = AudioManager.get_world(wave, sampling_rate)
+
+    assert np.array_equal(actual_f0, f0)
+    assert np.array_equal(actual_sp, expected_sp)
+    assert np.array_equal(actual_ap, expected_ap)
+    assert (actual_sp.dtype, actual_sp.shape) == (expected_sp.dtype, expected_sp.shape)
+    assert (actual_ap.dtype, actual_ap.shape) == (expected_ap.dtype, expected_ap.shape)
+
+
+def test_get_world_propagates_cheaptrick_error(monkeypatch):
+    def failing_cheaptrick(*args, **kwargs):
+        raise RuntimeError("cheaptrick failed")
+
+    world = coeiro_manager.load_pyworld()
+    monkeypatch.setattr(world, "cheaptrick", failing_cheaptrick)
+
+    wave = _synthetic_voiced_wave(16000, 0.3)
+    with pytest.raises(RuntimeError, match="cheaptrick failed"):
+        AudioManager.get_world(wave, 16000)
