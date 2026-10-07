@@ -1,8 +1,13 @@
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
+
+import pytest
 
 from coeirocore.devices import DeviceBackend, DeviceSelection
 from coeirocore.model_memory import _cuda_memory, model_load_memory_error
+
+MIB = 1024 * 1024
 
 
 def _selection(backend: DeviceBackend) -> DeviceSelection:
@@ -77,3 +82,90 @@ def test_cuda_reusable_memory_does_not_exceed_device_total() -> None:
         patch("torch.cuda.memory_allocated", return_value=100),
     ):
         assert _cuda_memory(selection) == (1000, 1000)
+
+
+@pytest.mark.parametrize(
+    ("limit_name", "usage_name", "stat_keys"),
+    [
+        (
+            "memory.max",
+            "memory.current",
+            ("inactive_file", "file_dirty", "file_writeback"),
+        ),
+        (
+            "memory.limit_in_bytes",
+            "memory.usage_in_bytes",
+            ("total_inactive_file", "total_dirty", "total_writeback"),
+        ),
+    ],
+)
+def test_cgroup_cache_allows_load_without_bypassing_parent_limit(
+    tmp_path, limit_name, usage_name, stat_keys
+):
+    root = tmp_path / "cgroup"
+    child = root / "service"
+    child.mkdir(parents=True)
+    stats = "".join(
+        f"{key} {value * MIB}\n"
+        for key, value in zip(stat_keys, (300, 50, 50), strict=True)
+    )
+    for directory, limit, usage in ((root, 2048, 1800), (child, 1024, 900)):
+        (directory / limit_name).write_text(str(limit * MIB))
+        (directory / usage_name).write_text(str(usage * MIB))
+        (directory / "memory.stat").write_text(stats)
+    model_path = tmp_path / "model.pth"
+    with model_path.open("wb") as file:
+        file.truncate(8 * MIB)
+
+    with (
+        patch(
+            "coeirocore.model_memory._process_cgroup_directories",
+            return_value=((root, child, limit_name, usage_name),),
+        ),
+        patch(
+            "psutil.virtual_memory",
+            return_value=SimpleNamespace(total=4096 * MIB, available=3072 * MIB),
+        ),
+    ):
+        options = {
+            "model_path": model_path,
+            "selection": _selection(DeviceBackend.CPU),
+            "generator_only": True,
+            "resident_device_bytes": 0,
+        }
+        assert model_load_memory_error(**options) is None
+        # 祖先cgroupで他のプロセスがメモリを使った場合は、子に余裕があっても読み込まない。
+        (root / usage_name).write_text(str(2000 * MIB))
+        assert "host memory" in model_load_memory_error(**options)
+
+
+@pytest.mark.parametrize(
+    "stats",
+    [None, "inactive_file 314572800\nfile_dirty 304087040\nfile_writeback 20971520\n"],
+)
+def test_missing_or_dirty_cache_does_not_relax_memory_guard(tmp_path, stats):
+    root = tmp_path / "cgroup"
+    root.mkdir()
+    (root / "memory.max").write_text(str(1024 * MIB))
+    (root / "memory.current").write_text(str(900 * MIB))
+    if stats is not None:
+        (root / "memory.stat").write_text(stats)
+    model_path = tmp_path / "model.pth"
+    model_path.write_bytes(b"model")
+    with (
+        patch(
+            "coeirocore.model_memory._process_cgroup_directories",
+            return_value=((root, root, "memory.max", "memory.current"),),
+        ),
+        patch(
+            "psutil.virtual_memory",
+            return_value=SimpleNamespace(total=4096 * MIB, available=3072 * MIB),
+        ),
+    ):
+        error = model_load_memory_error(
+            model_path=model_path,
+            selection=_selection(DeviceBackend.CPU),
+            generator_only=True,
+            resident_device_bytes=0,
+        )
+    assert error is not None and "host memory" in error

@@ -1,3 +1,7 @@
+import os
+import subprocess
+import sys
+import textwrap
 from unittest.mock import patch
 
 import numpy as np
@@ -60,6 +64,49 @@ def test_default_resampler_preserves_resampy_configuration() -> None:
         filter="kaiser_fast",
         parallel=True,
     )
+
+
+def test_concurrent_resampling_with_numba_workqueue_does_not_abort() -> None:
+    code = textwrap.dedent(
+        """
+        import sys
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+
+        import numpy as np
+        from coeirocore.waveform import resample_waveform
+
+        if sys.platform != "win32":
+            import resource
+            resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+
+        wave = np.sin(np.arange(220_500, dtype=np.float32) * 0.02)
+        expected = resample_waveform(wave, 44100, 48000)
+        barrier = Barrier(2)
+
+        def convert(_):
+            barrier.wait(timeout=10)
+            return resample_waveform(wave, 44100, 48000)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            for result in executor.map(convert, range(2)):
+                assert np.array_equal(result, expected)
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        env={
+            **os.environ,
+            "NUMBA_THREADING_LAYER": "workqueue",
+            "NUMBA_NUM_THREADS": "2",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_soxr_vhq_preserves_legacy_output_length() -> None:

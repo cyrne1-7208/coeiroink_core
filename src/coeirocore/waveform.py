@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from math import prod
+from threading import Lock
 from typing import Any, Literal, cast
 
 import numpy as np
@@ -9,6 +10,7 @@ import numpy as np
 Resampler = Literal["resampy", "soxr-vhq"]
 SUPPORTED_RESAMPLERS: tuple[Resampler, ...] = ("resampy", "soxr-vhq")
 _MAX_RMS_SQUARE_BYTES = 8 * 1024 * 1024
+_RESAMPY_LOCK = Lock()
 
 
 def normalize_resampler(value: str) -> Resampler:
@@ -127,13 +129,15 @@ def resample_waveform(
     if normalized == "resampy":
         import resampy
 
-        return resampy.resample(
-            samples,
-            sampling_rate,
-            output_sampling_rate,
-            filter="kaiser_fast",
-            parallel=True,
-        )
+        # Numbaのworkqueueは複数スレッドからの同時呼び出しでプロセスを停止する。変換内の並列計算は維持し、リクエスト同士の実行だけを直列化する。
+        with _RESAMPY_LOCK:
+            return resampy.resample(
+                samples,
+                sampling_rate,
+                output_sampling_rate,
+                filter="kaiser_fast",
+                parallel=True,
+            )
 
     converted = np.asarray(
         _load_soxr().resample(

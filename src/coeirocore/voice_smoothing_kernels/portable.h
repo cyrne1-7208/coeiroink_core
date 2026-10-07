@@ -1,6 +1,9 @@
 // CUDA/OpenCL間の構文差だけを吸収し、補正の数値式は共通ソースで管理する。
 #if defined(__CUDACC__) || defined(__CUDACC_RTC__)
+// NVRTCにはCUDAの組み込み型・関数があるため、Toolkitのヘッダーがない配布環境でもコンパイルできる。
+#ifndef __CUDACC_RTC__
 #include <cuda_runtime.h>
+#endif
 #define CLK_LOCAL_MEM_FENCE 0
 #define KERNEL extern "C" __global__
 #define GLOBAL

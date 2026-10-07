@@ -35,6 +35,26 @@ jobs:
             exit 2
           fi
 
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate Core version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+
+          with open("pyproject.toml", "rb") as file:
+              actual = tomllib.load(file)["project"]["version"]
+          expected = os.environ["VERSION"].removeprefix("v")
+          if actual != expected:
+              raise SystemExit(f"Core version {actual!r} != {expected!r}")
+          PY
+
   build:
     name: Build ${{ matrix.target }}
     needs: validate-inputs
@@ -126,6 +146,10 @@ jobs:
         env:
           BACKEND: ${{ matrix.extra }}
         run: uv run --locked --extra "$BACKEND" --group dev pytest -q test/test_devices.py
+
+      - name: Compile CUDA voice smoothing kernels without a GPU
+        if: matrix.extra == 'cuda'
+        run: uv run --locked --extra cuda --group dev pytest -q test/test_voice_smoothing_cuda.py
 
       - name: Build wheel and source distribution
         run: uv build --wheel --sdist --out-dir dist

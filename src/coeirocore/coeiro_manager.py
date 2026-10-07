@@ -1019,7 +1019,9 @@ class AudioManager:
             )
             active_speaker_uuid = self._active_speaker_uuid()
             try:
-                if self.voice_smoothing and isinstance(text, str):
+                if isinstance(text, str) and (
+                    self.voice_smoothing or pause_control_requested
+                ):
                     model_input, tokens = model.encode_text_with_tokens(text)
                 else:
                     tokens = text

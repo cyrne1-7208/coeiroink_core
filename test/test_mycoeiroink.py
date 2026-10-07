@@ -643,7 +643,8 @@ def test_predict_with_duration_returns_untrimmed_wave_and_frames(tmp_path: Path)
     assert np.array_equal(result.wav, np.arange(12, dtype=np.float32))
 
 
-def test_audio_manager_changes_only_internal_pause_when_requested(tmp_path: Path):
+@pytest.mark.parametrize("text", [["^", "a", "_", "i", "$"], "あ、い"])
+def test_audio_manager_changes_only_internal_pause_when_requested(tmp_path: Path, text):
     speaker_info_dir = tmp_path / "speaker_info"
     create_old_mycoeiroink_fixture(speaker_info_dir)
 
@@ -653,6 +654,10 @@ def test_audio_manager_changes_only_internal_pause_when_requested(tmp_path: Path
 
         def tokens2ids(self, tokens):
             return np.arange(len(tokens), dtype=np.int64)
+
+        def encode_text_with_tokens(self, text):
+            tokens = ["^", "a", "_", "i", "$"]
+            return self.tokens2ids(tokens), tokens
 
         def make_voice_with_duration(self, text):
             return PredictionResult(
@@ -666,7 +671,7 @@ def test_audio_manager_changes_only_internal_pause_when_requested(tmp_path: Path
     ):
         manager = AudioManager(fs=100, speaker_info_dir=speaker_info_dir)
         wave = manager.synthesis(
-            ["^", "a", "_", "i", "$"],
+            text,
             style_id=STYLE_ID,
             pause_length=0.1,
             output_sampling_rate=100,

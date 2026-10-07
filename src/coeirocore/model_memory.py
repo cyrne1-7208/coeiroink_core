@@ -64,6 +64,33 @@ def _process_cgroup_directories() -> tuple[tuple[Path, Path, str, str], ...]:
     return tuple(directories)
 
 
+def _reclaimable_file_cache(directory: Path, *, cgroup_v1: bool) -> int:
+    """未使用のファイルキャッシュから、書き戻しが必要なページを除いた量を返す。"""
+
+    try:
+        stats = {
+            name: int(value)
+            for name, value in (
+                line.split()
+                for line in (directory / "memory.stat")
+                .read_text(encoding="ascii")
+                .splitlines()
+            )
+        }
+        if cgroup_v1:
+            inactive = stats["total_inactive_file"]
+            dirty = stats["total_dirty"]
+            writeback = stats["total_writeback"]
+        else:
+            inactive = stats["inactive_file"]
+            dirty = stats["file_dirty"]
+            writeback = stats["file_writeback"]
+    except (OSError, ValueError, KeyError):
+        # 統計が取得できない場合はキャッシュを空き容量に含めず、従来の保守的な判定を維持する。
+        return 0
+    return max(0, inactive - max(0, dirty) - max(0, writeback))
+
+
 def _cgroup_memory() -> tuple[int, int] | None:
     constraints: list[tuple[int, int]] = []
     for root, directory, limit_name, usage_name in _process_cgroup_directories():
@@ -72,7 +99,12 @@ def _cgroup_memory() -> tuple[int, int] | None:
             limit = _read_memory_limit(directory / limit_name)
             usage = _read_memory_limit(directory / usage_name)
             if limit is not None and usage is not None:
-                constraints.append((limit, max(0, limit - usage)))
+                reclaimable = _reclaimable_file_cache(
+                    directory, cgroup_v1=usage_name == "memory.usage_in_bytes"
+                )
+                # カウンターを読む間にも値は変わるため、空き容量が制限値を超えないようにする。
+                available = max(0, limit - max(0, usage - reclaimable))
+                constraints.append((limit, available))
             if directory == root:
                 break
             directory = directory.parent
