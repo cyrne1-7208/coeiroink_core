@@ -157,6 +157,7 @@ def model_load_memory_error(
     selection: DeviceSelection,
     generator_only: bool,
     resident_device_bytes: int,
+    reclaimable_bytes: int = 0,
 ) -> str | None:
     """安全マージンを考慮してもモデルを読み込めるか確認し、不足時は理由を返す。"""
 
@@ -164,6 +165,9 @@ def model_load_memory_error(
     # 全体ローダーではモデル構造、state_dict、一時領域が同時にメモリを使う。generator-onlyはmmapから必要な重みだけをコピーする。
     host_load_bytes = math.ceil(checkpoint_bytes * (1.5 if generator_only else 3.0))
     host_total, host_available = _host_memory()
+    # 解放前の見積もりにだけ加算し、GPU上の重みをホストRAMの空きとしては扱わない。
+    if selection.backend is DeviceBackend.CPU:
+        host_available = min(host_total, host_available + reclaimable_bytes)
     host_reserve = max(_MIN_HOST_RESERVE, host_total // 20)
     host_required = host_load_bytes + host_reserve
     if host_available < host_required:
@@ -174,11 +178,13 @@ def model_load_memory_error(
 
     if selection.backend is DeviceBackend.CUDA:
         device_total, device_available = _cuda_memory(selection)
+        device_available = min(device_total, device_available + reclaimable_bytes)
     elif selection.backend is DeviceBackend.OPENCL:
         device_total = _opencl_total_memory(selection)
         # OpenCL標準には空きメモリの取得APIがないため、総容量から本プロセスの推定使用量を引く。
         # ドライバや他プロセスの使用量は取得できないため、安全マージンを多めに確保する。
-        device_available = max(0, device_total - resident_device_bytes)
+        remaining_bytes = max(0, resident_device_bytes - reclaimable_bytes)
+        device_available = max(0, device_total - remaining_bytes)
     else:
         return None
 

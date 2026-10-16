@@ -55,6 +55,23 @@ jobs:
               raise SystemExit(f"Core version {actual!r} != {expected!r}")
           PY
 
+      - name: Check existing release tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # 既存Releaseを更新してもタグは移動しないため、別コミットの成果物で上書きしない。
+          tag_refs=$(git ls-remote --tags origin "refs/tags/$VERSION" "refs/tags/$VERSION^{}")
+          tag_commit=$(printf '%s\n' "$tag_refs" | awk -v ref="refs/tags/$VERSION" '
+            $2 == ref { direct = $1 }
+            $2 == ref "^{}" { peeled = $1 }
+            END { print (peeled ? peeled : direct) }
+          ')
+          if [ -n "$tag_commit" ] && [ "$tag_commit" != "$GITHUB_SHA" ]; then
+            echo "Tag $VERSION points to $tag_commit, not $GITHUB_SHA; run from that tag or use a new version." >&2
+            exit 1
+          fi
+
   build:
     name: Build ${{ matrix.target }}
     needs: validate-inputs
@@ -145,7 +162,12 @@ jobs:
       - name: Run lightweight backend regression tests
         env:
           BACKEND: ${{ matrix.extra }}
-        run: uv run --locked --extra "$BACKEND" --group dev pytest -q test/test_devices.py
+        run: |
+          test_files=(test/test_devices.py)
+          if [ "$RUNNER_OS" = Windows ]; then
+            test_files+=(test/test_espnet_vits_loader.py)
+          fi
+          uv run --locked --extra "$BACKEND" --group dev pytest -q "${test_files[@]}"
 
       - name: Compile CUDA voice smoothing kernels without a GPU
         if: matrix.extra == 'cuda'

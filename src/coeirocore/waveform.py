@@ -1,5 +1,7 @@
 """COEIROINKの波形トリムと出力リサンプリングを提供する。"""
 
+import os
+import sys
 from functools import lru_cache
 from math import prod
 from threading import Lock
@@ -11,6 +13,22 @@ Resampler = Literal["resampy", "soxr-vhq"]
 SUPPORTED_RESAMPLERS: tuple[Resampler, ...] = ("resampy", "soxr-vhq")
 _MAX_RMS_SQUARE_BYTES = 8 * 1024 * 1024
 _RESAMPY_LOCK = Lock()
+_resampy_thread_limit: int | None = None
+
+
+def _configure_resampler_threads(num_threads: int) -> None:
+    """明示されたCPUスレッド上限を、リサンプリング用にも保存する。"""
+
+    global _resampy_thread_limit
+    with _RESAMPY_LOCK:
+        # Numbaは初回import時にプールの最大数を固定するため、それ以降は環境変数を変更しない。
+        if "numba" not in sys.modules:
+            os.environ["NUMBA_NUM_THREADS"] = str(num_threads)
+        import numba
+
+        if numba.get_num_threads() != num_threads:
+            numba.set_num_threads(num_threads)
+        _resampy_thread_limit = num_threads
 
 
 def normalize_resampler(value: str) -> Resampler:
@@ -131,6 +149,12 @@ def resample_waveform(
 
         # Numbaのworkqueueは複数スレッドからの同時呼び出しでプロセスを停止する。変換内の並列計算は維持し、リクエスト同士の実行だけを直列化する。
         with _RESAMPY_LOCK:
+            if _resampy_thread_limit is not None:
+                import numba
+
+                # Numbaの実行スレッド数はスレッドごとの設定なので、リクエストを処理する側にも適用する。
+                if numba.get_num_threads() != _resampy_thread_limit:
+                    numba.set_num_threads(_resampy_thread_limit)
             return resampy.resample(
                 samples,
                 sampling_rate,

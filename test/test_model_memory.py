@@ -15,7 +15,7 @@ def _selection(backend: DeviceBackend) -> DeviceSelection:
         backend=backend,
         device_index=0,
         runtime_device=f"{backend.value}:0",
-        platform="linux",
+        platform="windows" if backend is DeviceBackend.DIRECTML else "linux",
         platform_index=0 if backend is DeviceBackend.OPENCL else None,
     )
 
@@ -44,34 +44,88 @@ def test_model_load_memory_guard_rejects_insufficient_host_memory(
     model_path.write_bytes(b"0" * 1024)
 
     with patch("coeirocore.model_memory._host_memory", return_value=(10**9, 1)):
-        error = model_load_memory_error(
-            model_path=model_path,
-            selection=_selection(DeviceBackend.CPU),
-            generator_only=True,
-            resident_device_bytes=0,
-        )
+        options = {
+            "model_path": model_path,
+            "selection": _selection(DeviceBackend.CPU),
+            "generator_only": True,
+            "resident_device_bytes": 0,
+        }
+        error = model_load_memory_error(**options)
+        assert model_load_memory_error(**options, reclaimable_bytes=512 * MIB) is None
 
     assert error is not None
     assert "host memory" in error
 
 
-def test_model_load_memory_guard_checks_cuda_headroom(tmp_path: Path) -> None:
+@pytest.mark.parametrize("backend", [DeviceBackend.CUDA, DeviceBackend.OPENCL])
+def test_model_load_memory_guard_checks_gpu_headroom(
+    tmp_path: Path, backend: DeviceBackend
+) -> None:
     model_path = tmp_path / "model.pth"
     model_path.write_bytes(b"0" * 1024)
 
     with (
         patch("coeirocore.model_memory._host_memory", return_value=(10**9, 10**9)),
         patch("coeirocore.model_memory._cuda_memory", return_value=(10**9, 1)),
+        patch("coeirocore.model_memory._opencl_total_memory", return_value=10**9),
+    ):
+        options = {
+            "model_path": model_path,
+            "selection": _selection(backend),
+            "generator_only": False,
+            "resident_device_bytes": 10**9 - 1,
+        }
+        error = model_load_memory_error(**options)
+        assert model_load_memory_error(**options, reclaimable_bytes=512 * MIB) is None
+
+    assert error is not None
+    assert f"{backend.value} memory" in error
+
+
+@pytest.mark.parametrize(
+    "backend", [DeviceBackend.CUDA, DeviceBackend.OPENCL, DeviceBackend.DIRECTML]
+)
+def test_gpu_eviction_credit_does_not_cover_host_shortage(
+    tmp_path: Path, backend: DeviceBackend
+) -> None:
+    model_path = tmp_path / "model.pth"
+    model_path.write_bytes(b"test checkpoint")
+    with patch("coeirocore.model_memory._host_memory", return_value=(10**9, 1)):
+        error = model_load_memory_error(
+            model_path=model_path,
+            selection=_selection(backend),
+            generator_only=True,
+            resident_device_bytes=10**9,
+            reclaimable_bytes=10**9,
+        )
+    assert error is not None and "host memory" in error
+
+
+@pytest.mark.parametrize(
+    "backend", [DeviceBackend.CPU, DeviceBackend.CUDA, DeviceBackend.OPENCL]
+)
+def test_eviction_credit_cannot_exceed_total_capacity(
+    tmp_path: Path, backend: DeviceBackend
+) -> None:
+    model_path = tmp_path / "model.pth"
+    model_path.write_bytes(b"test checkpoint")
+    host_total = 128 * MIB if backend is DeviceBackend.CPU else 1024 * MIB
+    with (
+        patch(
+            "coeirocore.model_memory._host_memory",
+            return_value=(host_total, host_total),
+        ),
+        patch("coeirocore.model_memory._cuda_memory", return_value=(128 * MIB, 1)),
+        patch("coeirocore.model_memory._opencl_total_memory", return_value=128 * MIB),
     ):
         error = model_load_memory_error(
             model_path=model_path,
-            selection=_selection(DeviceBackend.CUDA),
-            generator_only=False,
+            selection=_selection(backend),
+            generator_only=True,
             resident_device_bytes=0,
+            reclaimable_bytes=2048 * MIB,
         )
-
     assert error is not None
-    assert "cuda memory" in error
 
 
 def test_cuda_reusable_memory_does_not_exceed_device_total() -> None:

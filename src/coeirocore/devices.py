@@ -161,6 +161,7 @@ class DeviceSelection:
 
     backend: DeviceBackend
     device_index: int
+    # OpenCLではdevice_indexがプラットフォーム内の番号、runtime_deviceのocl:Nが全プラットフォームを通した番号になる。
     runtime_device: Any
     platform: str
     platform_index: int | None = None

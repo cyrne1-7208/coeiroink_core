@@ -52,6 +52,7 @@ def test_f0_only_analysis_matches_world_without_spectral_analysis(monkeypatch):
 
 
 def test_cpu_thread_limit_is_available_during_first_numba_import(monkeypatch):
+    monkeypatch.setattr("coeirocore.waveform._resampy_thread_limit", None)
     fake_numba = ModuleType("numba")
     fake_numba.get_num_threads = MagicMock(return_value=128)
     fake_numba.set_num_threads = MagicMock()
@@ -77,6 +78,7 @@ def test_cpu_thread_limit_is_available_during_first_numba_import(monkeypatch):
 def test_cpu_thread_limit_does_not_rewrite_numba_environment_after_import(
     monkeypatch,
 ):
+    monkeypatch.setattr("coeirocore.waveform._resampy_thread_limit", None)
     fake_numba = ModuleType("numba")
     fake_numba.get_num_threads = MagicMock(return_value=8)
     fake_numba.set_num_threads = MagicMock()
@@ -407,6 +409,7 @@ def test_audio_manager_keeps_most_recently_used_models(tmp_path: Path):
 def test_audio_manager_evicts_lru_model_under_memory_pressure(
     tmp_path: Path,
     max_loaded_models: int | None,
+    caplog,
 ):
     speaker_info_dir = tmp_path / "speaker_info"
     create_old_mycoeiroink_fixture(speaker_info_dir)
@@ -417,10 +420,14 @@ def test_audio_manager_evicts_lru_model_under_memory_pressure(
     )
 
     class FakeEspnetModel:
-        resident_bytes = 1
+        resident_bytes = 256 * 1024 * 1024
+        resident_count: ClassVar[int] = 0
 
         def __init__(self, *args, **kwargs):
-            pass
+            type(self).resident_count += 1
+
+        def __del__(self):
+            type(self).resident_count -= 1
 
         def set_speed_control_alpha(self, value):
             pass
@@ -428,8 +435,11 @@ def test_audio_manager_evicts_lru_model_under_memory_pressure(
     with (
         patch("coeirocore.coeiro_manager.EspnetModel", FakeEspnetModel),
         patch(
-            "coeirocore.coeiro_manager.model_load_memory_error",
-            side_effect=(None, "test pressure", None),
+            "coeirocore.model_memory._host_memory",
+            side_effect=lambda: (
+                2048 * 1024 * 1024,
+                (512 - 256 * FakeEspnetModel.resident_count) * 1024 * 1024,
+            ),
         ),
     ):
         manager = AudioManager(
@@ -442,6 +452,198 @@ def test_audio_manager_evicts_lru_model_under_memory_pressure(
 
     assert not manager.is_speaker_initialized(STYLE_ID, speaker_uuid=SPEAKER_UUID)
     assert manager.is_speaker_initialized(STYLE_ID, speaker_uuid=SPEAKER_UUID_2)
+    if max_loaded_models is None:
+        assert "Only 1 of 2 MYCOEIROINK models remain loaded" in caplog.text
+
+
+@pytest.mark.parametrize("max_loaded_models", [1, None])
+def test_audio_manager_checks_largest_model_at_startup_and_actual_model_on_switch(
+    tmp_path: Path, max_loaded_models: int | None
+):
+    speaker_info_dir = tmp_path / "speaker_info"
+    create_old_mycoeiroink_fixture(speaker_info_dir)
+    second = create_old_mycoeiroink_fixture(
+        speaker_info_dir,
+        folder_name="second-speaker",
+        speaker_uuid=SPEAKER_UUID_2,
+    )
+    with (second / "model" / str(STYLE_ID) / "model.pth").open("wb") as file:
+        file.truncate(64 * 1024 * 1024)
+
+    class FakeEspnetModel:
+        resident_bytes = 0
+        constructions: ClassVar[int] = 0
+
+        def __init__(self, *args, **kwargs):
+            type(self).constructions += 1
+
+    with (
+        patch("coeirocore.coeiro_manager.EspnetModel", FakeEspnetModel),
+        patch("coeirocore.model_memory._host_memory") as host_memory,
+    ):
+        host_memory.return_value = (2048 * 1024 * 1024, 320 * 1024 * 1024)
+        manager = AudioManager(
+            speaker_info_dir=speaker_info_dir,
+            max_loaded_models=max_loaded_models,
+            preload_models=False,
+        )
+        host_memory.assert_not_called()
+        assert FakeEspnetModel.constructions == 0
+
+        with pytest.raises(ModelLoadError, match="host memory"):
+            manager.prepare_models()
+        assert FakeEspnetModel.constructions == 0
+
+        host_memory.return_value = (2048 * 1024 * 1024, 512 * 1024 * 1024)
+        manager.prepare_models()
+        expected = 2 if max_loaded_models is None else 0
+        assert FakeEspnetModel.constructions == expected
+        assert manager.is_speaker_initialized(
+            STYLE_ID, speaker_uuid=SPEAKER_UUID_2
+        ) is (max_loaded_models is None)
+
+        # 起動後は最大モデル分の空きがなくても、小さい対象モデルを読み込める。
+        host_memory.return_value = (2048 * 1024 * 1024, 320 * 1024 * 1024)
+        manager.initialize_speaker(
+            STYLE_ID, speaker_uuid=SPEAKER_UUID, skip_reinit=False
+        )
+        assert FakeEspnetModel.constructions == expected + 1
+        assert manager.is_speaker_initialized(STYLE_ID, speaker_uuid=SPEAKER_UUID)
+
+
+@pytest.mark.parametrize("dangerous_skip_check", [False, True])
+def test_all_model_startup_does_not_hide_a_failed_checkpoint(
+    tmp_path: Path, dangerous_skip_check: bool
+):
+    speaker_info_dir = tmp_path / "speaker_info"
+    create_old_mycoeiroink_fixture(speaker_info_dir)
+    create_old_mycoeiroink_fixture(
+        speaker_info_dir,
+        folder_name="second-speaker",
+        speaker_uuid=SPEAKER_UUID_2,
+    )
+    failure = RuntimeError("invalid checkpoint")
+
+    class FakeEspnetModel:
+        resident_bytes = 0
+        constructions: ClassVar[int] = 0
+
+        def __init__(self, *args, **kwargs):
+            type(self).constructions += 1
+            if self.constructions == 2:
+                raise failure
+
+    with patch("coeirocore.coeiro_manager.EspnetModel", FakeEspnetModel):
+        manager = AudioManager(
+            speaker_info_dir=speaker_info_dir,
+            max_loaded_models=None,
+            preload_models=False,
+            dangerous_skip_check=dangerous_skip_check,
+        )
+        with pytest.raises(ModelLoadError) as caught:
+            manager.prepare_models()
+
+    assert caught.value.__cause__ is failure
+    assert not manager.is_speaker_initialized(STYLE_ID, speaker_uuid=SPEAKER_UUID)
+    assert not manager.is_speaker_initialized(STYLE_ID, speaker_uuid=SPEAKER_UUID_2)
+
+
+@pytest.mark.parametrize("max_loaded_models", [1, None])
+def test_dangerous_override_warns_but_keeps_the_model_count_limit(
+    tmp_path: Path, max_loaded_models: int | None, caplog
+):
+    speaker_info_dir = tmp_path / "speaker_info"
+    create_old_mycoeiroink_fixture(speaker_info_dir)
+    create_old_mycoeiroink_fixture(
+        speaker_info_dir,
+        folder_name="second-speaker",
+        speaker_uuid=SPEAKER_UUID_2,
+    )
+
+    class FakeEspnetModel:
+        resident_bytes = 0
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def set_speed_control_alpha(self, value):
+            pass
+
+    with (
+        patch("coeirocore.coeiro_manager.EspnetModel", FakeEspnetModel),
+        patch(
+            "coeirocore.model_memory._host_memory", return_value=(2048 * 1024 * 1024, 1)
+        ) as host_memory,
+    ):
+        manager = AudioManager(
+            speaker_info_dir=speaker_info_dir,
+            max_loaded_models=max_loaded_models,
+            dangerous_skip_check=True,
+        )
+        manager.initialize_speaker(STYLE_ID, speaker_uuid=SPEAKER_UUID)
+        manager.initialize_speaker(STYLE_ID, speaker_uuid=SPEAKER_UUID_2)
+
+    host_memory.assert_called()
+    assert "host memory" in caplog.text
+    assert "dangerous_skip_check=True" in caplog.text
+    assert manager.is_speaker_initialized(STYLE_ID, speaker_uuid=SPEAKER_UUID_2)
+    assert manager.is_speaker_initialized(STYLE_ID, speaker_uuid=SPEAKER_UUID) is (
+        max_loaded_models is None
+    )
+
+
+@pytest.mark.parametrize("max_loaded_models", [1, 2])
+def test_audio_manager_keeps_loaded_model_when_new_model_cannot_fit(
+    tmp_path: Path,
+    max_loaded_models: int,
+):
+    speaker_info_dir = tmp_path / "speaker_info"
+    create_old_mycoeiroink_fixture(speaker_info_dir)
+    create_old_mycoeiroink_fixture(
+        speaker_info_dir,
+        folder_name="second-speaker",
+        speaker_uuid=SPEAKER_UUID_2,
+    )
+
+    class FakeEspnetModel:
+        resident_bytes = 16 * 1024 * 1024
+        constructions: ClassVar[int] = 0
+
+        def __init__(self, *args, **kwargs):
+            type(self).constructions += 1
+
+        def set_speed_control_alpha(self, value):
+            pass
+
+        def tokens2ids(self, tokens):
+            return np.arange(len(tokens), dtype=np.int64)
+
+        def make_voice(self, text):
+            return np.ones(32, dtype=np.float32)
+
+    with (
+        patch("coeirocore.coeiro_manager.EspnetModel", FakeEspnetModel),
+        patch("coeirocore.model_memory._host_memory") as host_memory,
+    ):
+        host_memory.return_value = (2048 * 1024 * 1024, 1024 * 1024 * 1024)
+        manager = AudioManager(
+            speaker_info_dir=speaker_info_dir,
+            max_loaded_models=max_loaded_models,
+        )
+        before = manager.synthesis(
+            ["^", "a", "$"], style_id=STYLE_ID, speaker_uuid=SPEAKER_UUID
+        )
+        host_memory.return_value = (2048 * 1024 * 1024, 128 * 1024 * 1024)
+
+        with pytest.raises(ModelLoadError, match="host memory"):
+            manager.initialize_speaker(STYLE_ID, speaker_uuid=SPEAKER_UUID_2)
+
+        assert manager.is_speaker_initialized(STYLE_ID, speaker_uuid=SPEAKER_UUID)
+        after = manager.synthesis(
+            ["^", "a", "$"], style_id=STYLE_ID, speaker_uuid=SPEAKER_UUID
+        )
+        np.testing.assert_array_equal(before, after)
+        assert FakeEspnetModel.constructions == 1
 
 
 def test_audio_manager_releases_model_before_forced_reload(tmp_path: Path):

@@ -2,8 +2,6 @@ import gc
 import json
 import logging
 import math
-import os
-import sys
 import threading
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
@@ -23,6 +21,7 @@ from .model_memory import model_load_memory_error
 from .opencl import OpenCLVitsMode
 from .pyworld_compat import load_pyworld
 from .waveform import (
+    _configure_resampler_threads,
     ensure_resampler_available,
     resample_waveform,
     trim_silence,
@@ -45,13 +44,7 @@ def _configure_cpu_threads(num_threads: int) -> None:
     if torch.get_num_interop_threads() != num_threads:
         torch.set_num_interop_threads(num_threads)
 
-    # Numbaは初回import時の値でワーカープールの最大数を固定するため、その前だけ環境変数を更新する。
-    if "numba" not in sys.modules:
-        os.environ["NUMBA_NUM_THREADS"] = str(num_threads)
-    import numba
-
-    if numba.get_num_threads() != num_threads:
-        numba.set_num_threads(num_threads)
+    _configure_resampler_threads(num_threads)
 
 
 @lru_cache(maxsize=1)
@@ -627,7 +620,11 @@ class EspnetModel:
 
 
 class AudioManager:
-    """モデルの保持と推論を同じロックで管理し、生成した波形の後処理も行う。"""
+    """モデルの保持と推論を同じロックで管理し、生成した波形の後処理も行う。
+
+    preload_models=Falseで起動時の容量確認と事前ロードを遅らせられる。組み込み先の初期化後、リクエストの受付前にprepare_modelsを呼ぶ。
+    dangerous_skip_check=Trueでは容量不足を警告だけにし、容量不足による拒否と自動解放を省略する。保持数上限と実際の読み込みエラーは無効化しない。
+    """
 
     def __init__(
         self,
@@ -642,6 +639,8 @@ class AudioManager:
         max_loaded_models: int | None = 1,
         generator_only: bool = True,
         voice_smoothing: bool = False,
+        preload_models: bool = True,
+        dangerous_skip_check: bool = False,
     ):
         if isinstance(fs, bool) or not isinstance(fs, int) or fs <= 0:
             raise ValueError("fs must be a positive integer")
@@ -655,6 +654,8 @@ class AudioManager:
             raise TypeError("generator_only must be a boolean")
         if not isinstance(voice_smoothing, bool):
             raise TypeError("voice_smoothing must be a boolean")
+        if not isinstance(dangerous_skip_check, bool):
+            raise TypeError("dangerous_skip_check must be a boolean")
         if cpu_num_threads is not None:
             if (
                 isinstance(cpu_num_threads, bool)
@@ -696,14 +697,21 @@ class AudioManager:
                     "extra"
                 ) from error
         self.meta_manager = MetaManager(speaker_info_dir=speaker_info_dir)
+        # 起動時は最大モデルの必要量を確認する。起動後の切替では対象モデルの実サイズを使う。
+        self._startup_memory_reference_path = max(
+            (paths.model_path for paths in self.meta_manager.model_map.values()),
+            key=lambda path: path.stat().st_size,
+            default=None,
+        )
         self._loaded_models: dict[ModelKey, EspnetModel] = {}
         self._max_loaded_models = max_loaded_models
         self._generator_only = generator_only
+        self._dangerous_skip_check = dangerous_skip_check
         self._current_model_key: ModelKey | None = None
         self.current_speaker_model: EspnetModel | None = None
         self._synthesis_lock = threading.RLock()
-        if max_loaded_models is None:
-            self.initialize_all_speakers()
+        if preload_models:
+            self.prepare_models()
 
     @property
     def device(self) -> str:
@@ -811,19 +819,31 @@ class AudioManager:
         self._current_model_key = model_key
         return model
 
-    def _memory_error_for(self, model_path: Path) -> str | None:
+    def _memory_error_for(
+        self, model_path: Path, *, after_eviction: bool = False
+    ) -> str | None:
+        resident_bytes = sum(
+            getattr(model, "resident_bytes", 0)
+            for model in self._loaded_models.values()
+        )
         return model_load_memory_error(
             model_path=model_path,
             selection=self.device_selection,
             generator_only=self._generator_only,
-            resident_device_bytes=sum(
-                getattr(model, "resident_bytes", 0)
-                for model in self._loaded_models.values()
-            ),
+            resident_device_bytes=resident_bytes,
+            reclaimable_bytes=resident_bytes if after_eviction else 0,
         )
 
     def _make_room_for_model(self, model_path: Path, style_id: int) -> None:
         """保持数と空きメモリの条件を満たすまで、最後に使ってから最も時間が経ったモデルを解放する。"""
+
+        # 全候補を解放しても不足すると見込まれる場合は、使用可能なモデルを残して拒否する。
+        if self._loaded_models and not self._dangerous_skip_check:
+            memory_error = self._memory_error_for(model_path, after_eviction=True)
+            if memory_error is not None:
+                raise ModelLoadError(
+                    f"Refusing to load MYCOEIROINK style {style_id}: {memory_error}"
+                )
 
         while (
             self._max_loaded_models is not None
@@ -832,6 +852,15 @@ class AudioManager:
             self._discard_model(next(iter(self._loaded_models)))
 
         memory_error = self._memory_error_for(model_path)
+        if memory_error is not None and self._dangerous_skip_check:
+            _LOGGER.warning(
+                "Insufficient memory for MYCOEIROINK style %s (%s); "
+                "continuing without memory-based eviction because "
+                "dangerous_skip_check=True",
+                style_id,
+                memory_error,
+            )
+            return
         while memory_error is not None and self._loaded_models:
             evicted_key = next(iter(self._loaded_models))
             _LOGGER.warning(
@@ -882,6 +911,28 @@ class AudioManager:
         if had_models:
             self._collect_released_model_memory()
 
+    def prepare_models(self) -> None:
+        """起動時の空きメモリを確認し、保持数が無制限の場合だけ全モデルを事前ロードする。"""
+
+        with self._synthesis_lock:
+            if self._startup_memory_reference_path is not None:
+                memory_error = self._memory_error_for(
+                    self._startup_memory_reference_path, after_eviction=True
+                )
+                if memory_error is not None:
+                    if not self._dangerous_skip_check:
+                        raise ModelLoadError(
+                            f"Insufficient memory to load the largest installed MYCOEIROINK model: {memory_error}"
+                        )
+                    _LOGGER.warning(
+                        "Insufficient memory to load the largest installed "
+                        "MYCOEIROINK model (%s); continuing startup because "
+                        "dangerous_skip_check=True",
+                        memory_error,
+                    )
+            if self._max_loaded_models is None:
+                self.initialize_all_speakers()
+
     def initialize_all_speakers(self) -> None:
         """全モデル保持モードへ切り替え、導入済みモデルを順番に事前ロードする。
 
@@ -902,6 +953,14 @@ class AudioManager:
                 self._discard_all_models()
                 self._max_loaded_models = previous_limit
                 raise
+            total_models = len(self.meta_manager.model_map)
+            if len(self._loaded_models) < total_models:
+                _LOGGER.warning(
+                    "Only %s of %s MYCOEIROINK models remain loaded because of "
+                    "limited memory; other models will be loaded on demand",
+                    len(self._loaded_models),
+                    total_models,
+                )
 
     def initialize_speaker(
         self,

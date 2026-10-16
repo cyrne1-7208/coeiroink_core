@@ -73,8 +73,13 @@ def test_concurrent_resampling_with_numba_workqueue_does_not_abort() -> None:
         from concurrent.futures import ThreadPoolExecutor
         from threading import Barrier
 
+        import numba
         import numpy as np
+        from coeirocore.coeiro_manager import _configure_cpu_threads
         from coeirocore.waveform import resample_waveform
+
+        # Numbaを先に読み込んだ場合も、リクエストを処理するスレッドへ指定上限を引き継ぐ。
+        _configure_cpu_threads(1)
 
         if sys.platform != "win32":
             import resource
@@ -86,7 +91,9 @@ def test_concurrent_resampling_with_numba_workqueue_does_not_abort() -> None:
 
         def convert(_):
             barrier.wait(timeout=10)
-            return resample_waveform(wave, 44100, 48000)
+            result = resample_waveform(wave, 44100, 48000)
+            assert numba.get_num_threads() == 1
+            return result
 
         with ThreadPoolExecutor(max_workers=2) as executor:
             for result in executor.map(convert, range(2)):
