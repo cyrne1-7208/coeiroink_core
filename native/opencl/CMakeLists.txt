@@ -60,7 +60,7 @@ set(DLPRIM_STATIC_BUILD ON CACHE BOOL "Link DLPrimitives statically" FORCE)
 FetchContent_Declare(
   pytorch_dlprim
   GIT_REPOSITORY https://github.com/artyom-beilis/pytorch_dlprim.git
-  GIT_TAG 47305aa87aeb8dc450c9a91b559d5784c171b960
+  GIT_TAG 8b0ae8c9331e69afae72d1ac33abc769aa019666
   GIT_SHALLOW FALSE
   GIT_SUBMODULES_RECURSE TRUE
   PATCH_COMMAND
