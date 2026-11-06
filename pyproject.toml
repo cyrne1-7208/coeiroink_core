@@ -46,19 +46,19 @@ cuda = [
     "cupy-cuda12x==14.2.0",
 ]
 directml = [
-    # torch-directmlのWindows wheelに合わせ、DirectMLではTorch 2.4.1を使用する。
-    "espnet @ git+https://github.com/espnet/espnet.git@v.202609 ; sys_platform == 'win32'",
+    # DirectMLのwheelが対象とするTorchと、対応するESPnetをこのextraだけで選択する。
+    "espnet @ git+https://github.com/espnet/espnet.git@v.202611 ; sys_platform == 'win32'",
     "praat-parselmouth==0.4.7; sys_platform == 'win32'",
     "scipy>=1.16,<2; sys_platform == 'win32'",
-    "torch==2.4.1; sys_platform == 'win32'",
-    "torchaudio==2.4.1; sys_platform == 'win32'",
-    "torch-directml==0.2.5.dev240914; sys_platform == 'win32'",
+    "torch==2.14.1; sys_platform == 'win32'",
+    "torchaudio==2.11.0; sys_platform == 'win32'",
+    "torch-directml-backwards @ https://github.com/cyrne1-7208/torch-directml-backwards/releases/download/v0.1.0.dev261106/torch_directml_backwards-0.1.0.dev261106-2.14.1-cp312-cp312-win_amd64.whl#sha256=25144f573908116473b9c4ddf84eb24f8811538b2acbd545b22d56fdc41c8aac ; sys_platform == 'win32'",
 ]
 opencl = [
     # OpenCLは、LinuxでCUDAを利用できないGPU向けのPrivateUse1バックエンドとして導入する。
     "coeiroink-opencl==0.2.1+coeiroink.1.7.3; sys_platform == 'linux'",
     "espnet @ git+https://github.com/espnet/espnet.git@v.202609 ; sys_platform == 'linux'",
-    # TorchのABI解決を親extraへ集約するため、依存情報が空のネイティブパッケージとは別にPythonバインディングを指定する。
+    # ネイティブ拡張と同じTorchをルートextraで選び、CPU版wheelの配布先を指定する。
     "pyopencl>=2026.1.2,<2027; sys_platform == 'linux'",
     "torch==2.10.0; sys_platform == 'linux'",
     "torchaudio==2.10.0; sys_platform == 'linux'",
@@ -132,12 +132,6 @@ torchaudio = [
 coeiroink-opencl = [
     { requirement = "torch", match-runtime = true },
 ]
-
-[[tool.uv.dependency-metadata]]
-name = "coeiroink-opencl"
-version = "0.2.1+coeiroink.1.7.3"
-# Torchのバージョンは親のextraで固定しているため、ローカルパッケージ側では重ねて指定しない。
-requires-dist = []
 
 [[tool.uv.index]]
 name = "pytorch-cpu"

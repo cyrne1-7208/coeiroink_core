@@ -19,6 +19,8 @@ Python 3.12を使用します。
 
 OpenCL版には追加で、OpenCL C++ヘッダー、ICDローダー、SQLite 3の開発用ヘッダーも必要です。
 
+DirectML版は[torch-directml-backwards](https://github.com/cyrne1-7208/torch-directml-backwards)を使用します。[Microsoft Visual C++ x64再頒布可能パッケージ](https://aka.ms/vs/17/release/vc_redist.x64.exe)も必要です。旧`torch-directml`とは併用しないでください。
+
 Coreのディレクトリで実行してください。
 
 ```bash

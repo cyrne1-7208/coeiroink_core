@@ -38,15 +38,9 @@ def test_core_and_native_package_versions_match() -> None:
         for requirement in project["project"]["optional-dependencies"]["opencl"]
         if requirement.startswith("coeiroink-opencl==")
     )
-    opencl_metadata = next(
-        metadata
-        for metadata in project["tool"]["uv"]["dependency-metadata"]
-        if metadata["name"] == "coeiroink-opencl"
-    )
 
     assert coeirocore.__version__ == core_version
     assert opencl_version == core_version
     assert opencl_requirement.split("==", 1)[1].split(";", 1)[0] == core_version
-    assert opencl_metadata["version"] == core_version
     assert _locked_versions("coeirocore") == {core_version}
     assert _locked_versions("coeiroink-opencl") == {core_version}
