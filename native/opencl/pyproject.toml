@@ -3,19 +3,19 @@ requires = [
   "scikit-build-core>=0.11,<0.12",
   "pybind11>=3,<4",
   # pt_oclはPyTorchのC++ ABIへリンクするため、ビルド時と実行時で同じバージョンを使う。
-  "torch==2.10.0",
+  "torch==2.14.1",
 ]
 build-backend = "scikit_build_core.build"
 
 [project]
 name = "coeiroink-opencl"
-version = "0.2.1+coeiroink.1.7.3"
+version = "0.2.2+coeiroink.1.7.3"
 description = "OpenCL PrivateUse1 backend for COEIROINK Core"
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.14,<3.15"
 dependencies = [
   "pyopencl>=2026.1.2,<2027",
-  "torch==2.10.0",
+  "torch==2.14.1",
 ]
 license = "LGPL-3.0-only"
 license-files = [

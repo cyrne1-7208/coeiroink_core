@@ -4,18 +4,18 @@ Cyrne1によってフォークされたCOEIROINK Coreです。
 
 ## 動作環境
 
-Python 3.12を使用します。
+Python 3.14を使用します。
 
 | バックエンド | OS（x64） | GPUの要件 |
 | --- | --- | --- |
 | CPU | Linux・Windows | 不要 |
-| CUDA | Linux・Windows | CUDA 12.8対応のNVIDIAドライバ |
+| CUDA | Linux・Windows | CUDA 13.0対応のNVIDIAドライバ |
 | OpenCL | Linux | OpenCL対応GPUとドライバ |
 | DirectML | Windows | Windows 10 バージョン1709以降・DirectX 12対応GPUとドライバ |
 
 ## セットアップ
 
-ソースから実行するには、[uv](https://docs.astral.sh/uv/)、[Git](https://git-scm.com/)、C/C++のビルド環境が必要です。Python 3.12は、インストールされていなければuvが取得します。
+ソースから実行するには、[uv](https://docs.astral.sh/uv/)、[Git](https://git-scm.com/)、C/C++のビルド環境が必要です。Python 3.14は、インストールされていなければuvが取得します。
 
 OpenCL版には追加で、OpenCL C++ヘッダー、ICDローダー、SQLite 3の開発用ヘッダーも必要です。
 

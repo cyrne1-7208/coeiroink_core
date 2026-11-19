@@ -85,7 +85,7 @@ def _reclaimable_file_cache(directory: Path, *, cgroup_v1: bool) -> int:
             inactive = stats["inactive_file"]
             dirty = stats["file_dirty"]
             writeback = stats["file_writeback"]
-    except (OSError, ValueError, KeyError):
+    except OSError, ValueError, KeyError:
         # 統計が取得できない場合はキャッシュを空き容量に含めず、従来の保守的な判定を維持する。
         return 0
     return max(0, inactive - max(0, dirty) - max(0, writeback))

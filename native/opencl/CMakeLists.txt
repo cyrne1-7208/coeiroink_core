@@ -72,6 +72,9 @@ FetchContent_MakeAvailable(pytorch_dlprim)
 # VITSでpytorch_dlprimに不足する演算だけをCore側でPrivateUse1へ登録する。
 # 未登録演算はpytorch_dlprim側の警告とCPUフォールバックに任せる。
 target_sources(pt_ocl PRIVATE "${CMAKE_CURRENT_LIST_DIR}/src/vits_ops.cpp")
+# PyTorch 2.14以降のヘッダーはC++20を要求するため、上流のcxx_std_17指定を上書きする。
+target_compile_features(pt_ocl PRIVATE cxx_std_20)
+set_target_properties(pt_ocl PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
 target_include_directories(pt_ocl PRIVATE "${pytorch_dlprim_SOURCE_DIR}/src")
 
 # Python C APIは実行中のインタープリターから取得し、Linux拡張をlibpythonへ直接リンクしない。

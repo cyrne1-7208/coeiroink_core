@@ -1,16 +1,17 @@
 [build-system]
 requires = [
-    "setuptools>=73,<74",
+    "setuptools>=77.0.3,<82",
     "wheel>=0.45,<1",
 ]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "coeirocore"
-version = "0.2.1+coeiroink.1.7.3"
+version = "0.2.2+coeiroink.1.7.3"
 description = "COEIROINK Core synthesis library"
-requires-python = ">=3.12,<3.13"
-license = { file = "LICENSE" }
+requires-python = ">=3.14,<3.15"
+license = "LGPL-3.0-only"
+license-files = ["LICENSE", "licenses/GPL-3.0.txt", "licenses/SOURCES.md"]
 authors = [{ name = "shirowanisan" }]
 urls = { Homepage = "https://github.com/cyrne1-7208/coeiroink_core" }
 dependencies = [
@@ -31,37 +32,36 @@ dependencies = [
 [project.optional-dependencies]
 # バックエンドごとにPyTorchのwheelが異なるため、extraは一つだけ選択する。
 cpu = [
-    "espnet @ git+https://github.com/espnet/espnet.git@v.202609",
+    "espnet @ git+https://github.com/espnet/espnet.git@v.202611",
     # CPUでの周期検出結果を変えないため、バージョンを固定する。
     "praat-parselmouth==0.4.7",
     "scipy>=1.16,<2",
-    "torch==2.10.0",
-    "torchaudio==2.10.0",
+    "torch==2.14.1",
+    "torchaudio==2.11.0",
 ]
 cuda = [
-    "espnet @ git+https://github.com/espnet/espnet.git@v.202609",
-    "torch==2.10.0",
-    "torchaudio==2.10.0",
-    # CUDA版の音声補正も同じGPU上で実行するためのCUDA 12系バインディング。
-    "cupy-cuda12x==14.2.0",
+    "espnet @ git+https://github.com/espnet/espnet.git@v.202611",
+    "torch==2.14.1",
+    "torchaudio==2.11.0",
+    # CUDA版の音声補正も同じGPU上で実行するためのCUDA 13系バインディング。
+    "cupy-cuda13x==14.2.0",
 ]
 directml = [
-    # DirectMLのwheelが対象とするTorchと、対応するESPnetをこのextraだけで選択する。
     "espnet @ git+https://github.com/espnet/espnet.git@v.202611 ; sys_platform == 'win32'",
     "praat-parselmouth==0.4.7; sys_platform == 'win32'",
     "scipy>=1.16,<2; sys_platform == 'win32'",
     "torch==2.14.1; sys_platform == 'win32'",
     "torchaudio==2.11.0; sys_platform == 'win32'",
-    "torch-directml-backwards @ https://github.com/cyrne1-7208/torch-directml-backwards/releases/download/v0.1.0.dev261106/torch_directml_backwards-0.1.0.dev261106-2.14.1-cp312-cp312-win_amd64.whl#sha256=25144f573908116473b9c4ddf84eb24f8811538b2acbd545b22d56fdc41c8aac ; sys_platform == 'win32'",
+    "torch-directml-backwards @ https://github.com/cyrne1-7208/torch-directml-backwards/releases/download/v0.2.0.dev261116/torch_directml_backwards-0.2.0.dev261116-2.14.1-cp314-cp314-win_amd64.whl#sha256=a1c2bcc60d209419e25fbcbe0f1278d669d4c43643bf1573d269d83f097538a0 ; sys_platform == 'win32'",
 ]
 opencl = [
     # OpenCLは、LinuxでCUDAを利用できないGPU向けのPrivateUse1バックエンドとして導入する。
-    "coeiroink-opencl==0.2.1+coeiroink.1.7.3; sys_platform == 'linux'",
-    "espnet @ git+https://github.com/espnet/espnet.git@v.202609 ; sys_platform == 'linux'",
+    "coeiroink-opencl==0.2.2+coeiroink.1.7.3; sys_platform == 'linux'",
+    "espnet @ git+https://github.com/espnet/espnet.git@v.202611 ; sys_platform == 'linux'",
     # ネイティブ拡張と同じTorchをルートextraで選び、CPU版wheelの配布先を指定する。
     "pyopencl>=2026.1.2,<2027; sys_platform == 'linux'",
-    "torch==2.10.0; sys_platform == 'linux'",
-    "torchaudio==2.10.0; sys_platform == 'linux'",
+    "torch==2.14.1; sys_platform == 'linux'",
+    "torchaudio==2.11.0; sys_platform == 'linux'",
 ]
 soxr = [
     # 高品質リサンプリングを明示的に選択した環境にのみ導入する。
@@ -115,16 +115,16 @@ environments = [
 coeiroink-opencl = [
     { path = "native/opencl", extra = "opencl" },
 ]
-# CPUとOpenCLはCPU wheel、CUDAはcu128 wheelを同じPyTorchバージョンから解決する。
+# CPUとOpenCLはCPU wheel、CUDAはcu130 wheelを同じPyTorchバージョンから解決する。
 torch = [
     { index = "pytorch-cpu", extra = "cpu" },
     { index = "pytorch-cpu", extra = "opencl" },
-    { index = "pytorch-cu128", extra = "cuda" },
+    { index = "pytorch-cu130", extra = "cuda" },
 ]
 torchaudio = [
     { index = "pytorch-cpu", extra = "cpu" },
     { index = "pytorch-cpu", extra = "opencl" },
-    { index = "pytorch-cu128", extra = "cuda" },
+    { index = "pytorch-cu130", extra = "cuda" },
 ]
 
 [tool.uv.extra-build-dependencies]
@@ -139,12 +139,9 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
-
-[tool.setuptools]
-license-files = ["LICENSE", "licenses/GPL-3.0.txt", "licenses/SOURCES.md"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
