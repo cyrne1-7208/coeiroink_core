@@ -1,12 +1,21 @@
+"""波形トリム・リサンプリング・CPUスレッド上限の伝播を検証する。"""
+
+from __future__ import annotations
+
+import builtins
 import os
 import subprocess
 import sys
 import textwrap
-from unittest.mock import patch
+from types import ModuleType
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+import resampy
+import torch
 
+from coeirocore import coeiro_manager, waveform
 from coeirocore.waveform import (
     detect_non_silent_range,
     resample_waveform,
@@ -31,30 +40,35 @@ def test_trim_keeps_uniform_silence_for_legacy_compatibility() -> None:
     assert np.array_equal(trim_silence(wave), wave)
 
 
-def test_trim_squares_long_waveform_in_bounded_chunks() -> None:
+def test_trim_squares_long_waveform_in_bounded_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     wave = np.zeros(1_100_000, dtype=np.float32)
     wave[500_000:600_000] = 1.0
     original_square = np.square
     chunk_sizes: list[int] = []
 
-    def track_square(values, *args, **kwargs):
+    def track_square(values: np.ndarray, *args: object, **kwargs: object) -> np.ndarray:
         chunk_sizes.append(values.size)
         return original_square(values, *args, **kwargs)
 
-    with patch("coeirocore.waveform.np.square", side_effect=track_square):
-        detected = detect_non_silent_range(wave)
+    monkeypatch.setattr(waveform.np, "square", track_square)
+    detected = detect_non_silent_range(wave)
 
     assert detected[0] < detected[1]
     assert len(chunk_sizes) > 1
     assert max(chunk_sizes) * np.dtype(np.float32).itemsize <= 8 * 1024 * 1024
 
 
-def test_default_resampler_preserves_resampy_configuration() -> None:
+def test_default_resampler_preserves_resampy_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     wave = np.ones(32, dtype=np.float32)
     expected = np.arange(16, dtype=np.float32)
+    resample = MagicMock(return_value=expected)
+    monkeypatch.setattr(resampy, "resample", resample)
 
-    with patch("resampy.resample", return_value=expected) as resample:
-        result = resample_waveform(wave, 44100, 22050)
+    result = resample_waveform(wave, 44100, 22050)
 
     assert result is expected
     resample.assert_called_once_with(
@@ -64,6 +78,49 @@ def test_default_resampler_preserves_resampy_configuration() -> None:
         filter="kaiser_fast",
         parallel=True,
     )
+
+
+def test_cpu_thread_limit_is_available_during_first_numba_import(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(waveform, "_resampy_thread_limit", None)
+    fake_numba = ModuleType("numba")
+    fake_numba.get_num_threads = MagicMock(return_value=128)
+    fake_numba.set_num_threads = MagicMock()
+
+    def import_numba(name: str, *args: object, **kwargs: object) -> ModuleType:
+        assert name == "numba"
+        assert os.environ["NUMBA_NUM_THREADS"] == "2"
+        return fake_numba
+
+    monkeypatch.delitem(sys.modules, "numba", raising=False)
+    monkeypatch.setenv("NUMBA_NUM_THREADS", "128")
+    monkeypatch.setattr(torch, "set_num_threads", MagicMock())
+    monkeypatch.setattr(torch, "get_num_interop_threads", lambda: 4)
+    monkeypatch.setattr(torch, "set_num_interop_threads", MagicMock())
+    with monkeypatch.context() as scoped:
+        scoped.setattr(builtins, "__import__", import_numba)
+        coeiro_manager._configure_cpu_threads(2)
+
+    fake_numba.set_num_threads.assert_called_once_with(2)
+
+
+def test_cpu_thread_limit_does_not_rewrite_numba_environment_after_import(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(waveform, "_resampy_thread_limit", None)
+    fake_numba = ModuleType("numba")
+    fake_numba.get_num_threads = MagicMock(return_value=8)
+    fake_numba.set_num_threads = MagicMock()
+    monkeypatch.setitem(sys.modules, "numba", fake_numba)
+    monkeypatch.setenv("NUMBA_NUM_THREADS", "8")
+    monkeypatch.setattr(torch, "set_num_threads", MagicMock())
+    monkeypatch.setattr(torch, "get_num_interop_threads", lambda: 2)
+
+    coeiro_manager._configure_cpu_threads(2)
+
+    assert os.environ["NUMBA_NUM_THREADS"] == "8"
+    fake_numba.set_num_threads.assert_called_once_with(2)
 
 
 def test_concurrent_resampling_with_numba_workqueue_does_not_abort() -> None:

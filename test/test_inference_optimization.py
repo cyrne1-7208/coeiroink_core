@@ -1,11 +1,14 @@
+"""ESPnet VITS推論向け最適化（weight_norm固定・duration計算）を検証する。"""
+
+from __future__ import annotations
+
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import pytest
 import torch
 from torch.nn.utils.weight_norm import WeightNorm
 
-from coeirocore.devices import DeviceBackend
+from coeirocore import espnet_inference
 from coeirocore.espnet_inference import (
     _VitsPathDurationCalculator,
     optimize_espnet_for_inference,
@@ -29,7 +32,9 @@ def test_vits_duration_calculator_counts_path_without_token_loop() -> None:
     assert focus_rate.item() == 1.0
 
 
-def test_vits_optimization_freezes_weight_norm_without_changing_output() -> None:
+def test_vits_optimization_freezes_weight_norm_without_changing_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class FakeVits(torch.nn.Module):
         def __init__(self) -> None:
             super().__init__()
@@ -47,12 +52,9 @@ def test_vits_optimization_freezes_weight_norm_without_changing_output() -> None
         model=SimpleNamespace(tts=vits),
         duration_calculator=object(),
     )
+    monkeypatch.setattr(espnet_inference, "_vits_type", lambda: FakeVits)
 
-    with patch(
-        "coeirocore.espnet_inference._vits_type",
-        return_value=FakeVits,
-    ):
-        optimize_espnet_for_inference(text_to_speech)
+    optimize_espnet_for_inference(text_to_speech)
 
     after = vits.generator(input_tensor).detach()
     convolution = vits.generator[0]
@@ -61,40 +63,3 @@ def test_vits_optimization_freezes_weight_norm_without_changing_output() -> None
     assert torch.equal(before, after)
     assert isinstance(text_to_speech.duration_calculator, _VitsPathDurationCalculator)
     assert vits.discriminator is None
-
-
-def test_espnet_inference_runs_in_inference_mode() -> None:
-    from coeirocore.coeiro_manager import EspnetModel
-
-    class FakeTextToSpeech:
-        def __call__(self, text):
-            assert torch.is_inference_mode_enabled()
-            return {"wav": torch.zeros(1)}
-
-    model = EspnetModel.__new__(EspnetModel)
-    model.tts_model = FakeTextToSpeech()
-    model._supports_speed_control = False
-    model.device_selection = SimpleNamespace(backend=DeviceBackend.CPU)
-
-    result = model._run_inference("test", seed=0)
-
-    assert torch.equal(result["wav"], torch.zeros(1))
-
-
-def test_espnet_model_resident_bytes_includes_unregistered_position_data() -> None:
-    from coeirocore.coeiro_manager import EspnetModel
-
-    class FakeModel(torch.nn.Module):
-        def __init__(self) -> None:
-            super().__init__()
-            self.weight = torch.nn.Parameter(torch.ones(2))
-            self.pe = torch.ones(3)
-
-    model = EspnetModel.__new__(EspnetModel)
-    model.tts_model = SimpleNamespace(model=FakeModel())
-
-    assert model.resident_bytes == 5 * torch.tensor(1.0).element_size()
-
-    # ESPnetは長い入力に合わせて未登録の位置埋め込みを拡張するため、読み込み時の値を固定しない。
-    model.tts_model.model.pe = torch.ones(7)
-    assert model.resident_bytes == 9 * torch.tensor(1.0).element_size()

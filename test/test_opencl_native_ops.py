@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Iterator
+from typing import Any
 
 import pytest
 
 from coeirocore.opencl import OpenCLVitsMode
+
+pytestmark = pytest.mark.opencl
 
 torch = pytest.importorskip("torch")
 
@@ -35,7 +39,9 @@ _INTEGER_DTYPES = {
 
 
 @pytest.fixture(autouse=True)
-def _reject_unsupported_operator_warnings(recwarn):
+def _reject_unsupported_operator_warnings(
+    recwarn: pytest.WarningsRecorder,
+) -> Iterator[None]:
     yield
     unsupported = [
         str(record.message)
@@ -48,7 +54,7 @@ def _reject_unsupported_operator_warnings(recwarn):
         )
 
 
-def _to_ocl(value):
+def _to_ocl(value: Any) -> Any:
     if isinstance(value, torch.Tensor):
         return value.to(_OCL_DEVICE)
     if isinstance(value, tuple):
@@ -56,7 +62,7 @@ def _to_ocl(value):
     return value
 
 
-def _to_cpu(value):
+def _to_cpu(value: Any) -> Any:
     if isinstance(value, torch.Tensor):
         return value.cpu()
     if isinstance(value, tuple):
@@ -64,7 +70,7 @@ def _to_cpu(value):
     return value
 
 
-def _assert_same(expected, actual):
+def _assert_same(expected: Any, actual: Any) -> None:
     if isinstance(expected, torch.Tensor):
         assert isinstance(actual, torch.Tensor)
         if expected.dtype == torch.bool or expected.dtype in _INTEGER_DTYPES:
@@ -79,7 +85,7 @@ def _assert_same(expected, actual):
         _assert_same(expected_item, actual_item)
 
 
-def test_gather_last_dimension_matches_cpu():
+def test_gather_last_dimension_matches_cpu() -> None:
     values = torch.tensor(
         [[0.0, 1.0, 2.0, 3.0], [4.0, 5.0, 6.0, 7.0]], dtype=torch.float32
     )
@@ -91,7 +97,7 @@ def test_gather_last_dimension_matches_cpu():
     _assert_same(expected, _to_cpu(actual))
 
 
-def test_index_select_matches_cpu():
+def test_index_select_matches_cpu() -> None:
     values = torch.arange(15, dtype=torch.float32).reshape(5, 3)
     indices = torch.tensor([4, 1, 1, 0], dtype=torch.int64)
 
@@ -101,9 +107,10 @@ def test_index_select_matches_cpu():
     _assert_same(expected, _to_cpu(actual))
 
 
-def test_axis_zero_integer_index_matches_cpu():
+@pytest.mark.parametrize("raw_indices", [[3, 0, 3], [-1, 0, -3]])
+def test_axis_zero_integer_index_matches_cpu(raw_indices: list[int]) -> None:
     values = torch.arange(20, dtype=torch.float32).reshape(5, 4)
-    indices = torch.tensor([3, 0, 3], dtype=torch.int64)
+    indices = torch.tensor(raw_indices, dtype=torch.int64)
 
     expected = values[indices]
     actual = _to_ocl(values)[_to_ocl(indices)]
@@ -111,17 +118,7 @@ def test_axis_zero_integer_index_matches_cpu():
     _assert_same(expected, _to_cpu(actual))
 
 
-def test_axis_zero_negative_integer_index_matches_cpu():
-    values = torch.arange(20, dtype=torch.float32).reshape(5, 4)
-    indices = torch.tensor([-1, 0, -3], dtype=torch.int64)
-
-    expected = values[indices]
-    actual = _to_ocl(values)[_to_ocl(indices)]
-
-    _assert_same(expected, _to_cpu(actual))
-
-
-def test_scalar_integer_index_raises_cleanly():
+def test_scalar_integer_index_raises_cleanly() -> None:
     scalar = _to_ocl(torch.tensor(1.0))
     index = _to_ocl(torch.tensor(0))
 
@@ -131,7 +128,7 @@ def test_scalar_integer_index_raises_cleanly():
 
 
 @pytest.mark.parametrize("operation", ["gather", "index_select", "index"])
-def test_invalid_integer_indices_raise(operation):
+def test_invalid_integer_indices_raise(operation: str) -> None:
     values = torch.arange(12, dtype=torch.float32).reshape(3, 4)
     invalid = torch.tensor([3], dtype=torch.int64)
     ocl_values = _to_ocl(values)
@@ -146,7 +143,7 @@ def test_invalid_integer_indices_raise(operation):
             ocl_values[ocl_invalid]
 
 
-def test_axis_zero_boolean_index_matches_cpu():
+def test_axis_zero_boolean_index_matches_cpu() -> None:
     values = torch.arange(20, dtype=torch.float32).reshape(5, 4)
     mask = torch.tensor([True, False, True, False, True])
 
@@ -156,7 +153,7 @@ def test_axis_zero_boolean_index_matches_cpu():
     _assert_same(expected, _to_cpu(actual))
 
 
-def test_boolean_index_put_without_accumulation_matches_cpu():
+def test_boolean_index_put_without_accumulation_matches_cpu() -> None:
     values = torch.arange(12, dtype=torch.float32).reshape(3, 4)
     mask = torch.tensor([True, False, True])
     replacement = torch.tensor(
@@ -172,7 +169,7 @@ def test_boolean_index_put_without_accumulation_matches_cpu():
     _assert_same(expected, _to_cpu(actual))
 
 
-def test_boolean_nonzero_matches_cpu():
+def test_boolean_nonzero_matches_cpu() -> None:
     mask = torch.tensor([[False, True, False], [True, True, False]])
 
     expected = torch.nonzero(mask)
@@ -181,7 +178,7 @@ def test_boolean_nonzero_matches_cpu():
     _assert_same(expected, _to_cpu(actual))
 
 
-def test_last_dimension_float32_cumsum_matches_cpu():
+def test_last_dimension_float32_cumsum_matches_cpu() -> None:
     values = torch.tensor(
         [[1.25, -2.0, 3.5, 4.0], [-1.0, 0.5, 2.25, -3.0]], dtype=torch.float32
     )
@@ -192,7 +189,7 @@ def test_last_dimension_float32_cumsum_matches_cpu():
     _assert_same(expected, _to_cpu(actual))
 
 
-def test_float32_softplus_matches_cpu():
+def test_float32_softplus_matches_cpu() -> None:
     values = torch.tensor(
         [-30.0, -1.0, 0.0, 19.0, 20.0, 21.0, 30.0], dtype=torch.float32
     )
@@ -203,7 +200,7 @@ def test_float32_softplus_matches_cpu():
     _assert_same(expected, _to_cpu(actual))
 
 
-def test_float32_relu_matches_cpu():
+def test_float32_relu_matches_cpu() -> None:
     values = torch.tensor([[-3.0, -0.0, 0.0], [2.5, -1.25, 8.0]], dtype=torch.float32).T
 
     expected = torch.relu(values)
@@ -214,7 +211,7 @@ def test_float32_relu_matches_cpu():
     _assert_same(expected, _to_cpu(actual))
 
 
-def test_broadcast_boolean_masked_fill_matches_cpu():
+def test_broadcast_boolean_masked_fill_matches_cpu() -> None:
     values = torch.arange(6, dtype=torch.float32).reshape(2, 3)
     mask = torch.tensor([[True], [False]])
 
@@ -226,7 +223,7 @@ def test_broadcast_boolean_masked_fill_matches_cpu():
     _assert_same(expected, _to_cpu(actual))
 
 
-def test_tensor_clamp_matches_cpu():
+def test_tensor_clamp_matches_cpu() -> None:
     values = torch.tensor([[-3.0, 0.5, 8.0], [2.0, 4.0, 10.0]], dtype=torch.float32)
     minimum = torch.tensor([-1.0, 1.0, 3.0], dtype=torch.float32)
     maximum = torch.tensor([1.0, 2.0, 6.0], dtype=torch.float32)
@@ -237,7 +234,7 @@ def test_tensor_clamp_matches_cpu():
     _assert_same(expected, _to_cpu(actual))
 
 
-def test_empty_pointwise_operations_match_cpu():
+def test_empty_pointwise_operations_match_cpu() -> None:
     values = torch.empty((0, 3), dtype=torch.float32)
     mask = torch.empty((1, 3), dtype=torch.bool)
     minimum = torch.empty((1, 3), dtype=torch.float32)
@@ -251,7 +248,7 @@ def test_empty_pointwise_operations_match_cpu():
     _assert_same(expected_clamp, _to_cpu(actual_clamp))
 
 
-def test_last_dimension_float32_max_matches_cpu():
+def test_last_dimension_float32_max_matches_cpu() -> None:
     values = torch.tensor(
         [[-2.0, 4.0, 4.0, 1.0], [8.0, -1.0, 3.0, 2.0]], dtype=torch.float32
     )
@@ -262,7 +259,7 @@ def test_last_dimension_float32_max_matches_cpu():
     _assert_same(expected, _to_cpu(actual))
 
 
-def test_boolean_all_matches_cpu():
+def test_boolean_all_matches_cpu() -> None:
     values = torch.tensor([True, True, False, True])
 
     expected = torch.all(values)
@@ -271,7 +268,7 @@ def test_boolean_all_matches_cpu():
     _assert_same(expected, _to_cpu(actual))
 
 
-def test_flip_matches_cpu():
+def test_flip_matches_cpu() -> None:
     values = torch.arange(12, dtype=torch.float32).reshape(3, 4)
 
     expected = torch.flip(values, dims=[-1])
@@ -280,7 +277,7 @@ def test_flip_matches_cpu():
     _assert_same(expected, _to_cpu(actual))
 
 
-def test_weight_norm_interface_dim_zero_matches_cpu():
+def test_weight_norm_interface_dim_zero_matches_cpu() -> None:
     values = torch.tensor(
         [
             [[1.0, 2.0], [3.0, 4.0]],
@@ -297,7 +294,7 @@ def test_weight_norm_interface_dim_zero_matches_cpu():
     _assert_same(expected, _to_cpu(actual))
 
 
-def test_empty_weight_norm_raises_cleanly():
+def test_empty_weight_norm_raises_cleanly() -> None:
     values = _to_ocl(torch.empty((0, 3), dtype=torch.float32))
     scale = _to_ocl(torch.empty(0, dtype=torch.float32))
 
@@ -321,7 +318,9 @@ def test_empty_weight_norm_raises_cleanly():
     ],
     ids=("conv1d", "conv_transpose1d"),
 )
-def test_convolution_reuses_backend_across_dynamic_lengths(module):
+def test_convolution_reuses_backend_across_dynamic_lengths(
+    module: torch.nn.Module,
+) -> None:
     """同一のOpenCL畳み込みを異なる時間長で実行しても、計算結果がCPUと一致することを検証する。"""
 
     torch.manual_seed(4)

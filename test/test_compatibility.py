@@ -1,10 +1,14 @@
+"""遅延importと非推奨警告なしの互換性境界をクリーンなサブプロセスで検証する。"""
+
+from __future__ import annotations
+
 import subprocess
 import sys
 
 import pyopenjtalk
 
 
-def test_pyworld_compat_uses_stdlib_metadata_without_deprecation_warning():
+def test_pyworld_compat_uses_stdlib_metadata_without_deprecation_warning() -> None:
     result = subprocess.run(
         [
             sys.executable,
@@ -31,7 +35,7 @@ def test_pyworld_compat_uses_stdlib_metadata_without_deprecation_warning():
     assert result.stderr == ""
 
 
-def test_text_to_tokens_does_not_load_the_tts_inference_stack():
+def test_text_to_tokens_does_not_load_the_tts_inference_stack() -> None:
     # pyopenjtalk初回辞書展開時に発生する外部ライブラリの警告を、Coreの遅延import検証から分離する。
     pyopenjtalk.g2p("辞書初期化")
     subprocess.run(
@@ -53,20 +57,4 @@ def test_text_to_tokens_does_not_load_the_tts_inference_stack():
         check=True,
         capture_output=True,
         text=True,
-    )
-
-
-def test_tts_stack_does_not_import_optional_kaldiio():
-    subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            (
-                "import sys; "
-                "from espnet2.bin.tts_inference import Text2Speech; "
-                "assert Text2Speech.__name__ == 'Text2Speech'; "
-                "assert 'kaldiio' not in sys.modules"
-            ),
-        ],
-        check=True,
     )

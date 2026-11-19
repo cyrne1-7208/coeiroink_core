@@ -148,3 +148,16 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 coeirocore = ["voice_smoothing_kernels/*.cl", "voice_smoothing_kernels/*.h"]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+addopts = ["--strict-markers"]
+markers = [
+    "cuda: CUDAツールキットまたはCuPy/NVRTCを必要とするテスト",
+    "opencl: OpenCLランタイムおよびpytorch_oclを必要とするテスト",
+    "real_model: 環境変数で指定した実モデルを使用する合成テスト",
+]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 88

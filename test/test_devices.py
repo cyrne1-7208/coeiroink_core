@@ -1,3 +1,7 @@
+"""CPU・CUDA・DirectML・OpenCLのデバイス解決と遅延import境界を検証する。"""
+
+from __future__ import annotations
+
 from types import SimpleNamespace
 from typing import ClassVar
 
@@ -20,48 +24,48 @@ from coeirocore.devices import (
 class FakeTorch:
     class cuda:
         @staticmethod
-        def is_available():
+        def is_available() -> bool:
             return True
 
         @staticmethod
-        def device_count():
+        def device_count() -> int:
             return 2
 
     @staticmethod
-    def device(value):
+    def device(value: str) -> str:
         return f"torch:{value}"
 
 
 class FakeDirectML:
     @staticmethod
-    def is_available():
+    def is_available() -> bool:
         return True
 
     @staticmethod
-    def device_count():
+    def device_count() -> int:
         return 2
 
     @staticmethod
-    def device(index=0):
+    def device(index: int = 0) -> str:
         return f"directml:{index}"
 
 
 class FakeOpenCLPlatform:
-    def __init__(self, names):
+    def __init__(self, names: list[str | bytes]) -> None:
         self._devices = [SimpleNamespace(name=name) for name in names]
 
-    def get_devices(self):
+    def get_devices(self) -> list[SimpleNamespace]:
         return self._devices
 
 
 class FakeOpenCL:
-    platforms: ClassVar = [
+    platforms: ClassVar[list[FakeOpenCLPlatform]] = [
         FakeOpenCLPlatform([b"AMD GPU"]),
         FakeOpenCLPlatform(["CPU device", "Intel GPU"]),
     ]
 
     @classmethod
-    def get_platforms(cls):
+    def get_platforms(cls) -> list[FakeOpenCLPlatform]:
         return cls.platforms
 
 
@@ -69,7 +73,7 @@ class FakePytorchOpenCL:
     pass
 
 
-def test_backend_names_are_normalized_without_importing_backend_modules():
+def test_backend_names_are_normalized_without_importing_backend_modules() -> None:
     assert normalize_backend(" CPU ") is DeviceBackend.CPU
     assert normalize_backend("CUDA") is DeviceBackend.CUDA
     assert normalize_backend("direct_ml") is DeviceBackend.DIRECTML
@@ -81,7 +85,7 @@ def test_backend_names_are_normalized_without_importing_backend_modules():
         normalize_backend("rocm")
 
 
-def test_cpu_and_cuda_resolution_uses_injected_torch_module():
+def test_cpu_and_cuda_resolution_uses_injected_torch_module() -> None:
     resolver = DeviceResolver(modules={"torch": FakeTorch}, platform_name="linux")
 
     cpu = resolver.resolve("cpu")
@@ -100,7 +104,7 @@ def test_cpu_and_cuda_resolution_uses_injected_torch_module():
         resolver.resolve("cpu", device_index=1)
 
 
-def test_cuda_unavailability_is_explicit():
+def test_cuda_unavailability_is_explicit() -> None:
     unavailable_torch = SimpleNamespace(
         cuda=SimpleNamespace(is_available=lambda: False),
         device=lambda value: value,
@@ -114,7 +118,7 @@ def test_cuda_unavailability_is_explicit():
         resolver.resolve("cuda")
 
 
-def test_directml_requires_windows_and_validates_device_index():
+def test_directml_requires_windows_and_validates_device_index() -> None:
     resolver = DeviceResolver(
         modules={"torch_directml": FakeDirectML},
         platform_name="Windows",
@@ -134,7 +138,7 @@ def test_directml_requires_windows_and_validates_device_index():
         linux_resolver.resolve("directml")
 
 
-def test_opencl_validates_platform_and_device_indices():
+def test_opencl_validates_platform_and_device_indices() -> None:
     resolver = DeviceResolver(
         modules={
             "pytorch_ocl": FakePytorchOpenCL,
@@ -165,10 +169,10 @@ def test_opencl_validates_platform_and_device_indices():
         windows_resolver.resolve("opencl")
 
 
-def test_optional_import_is_lazy_and_missing_module_is_explicit():
-    calls = []
+def test_optional_import_is_lazy_and_missing_module_is_explicit() -> None:
+    calls: list[str] = []
 
-    def importer(name):
+    def importer(name: str) -> object:
         calls.append(name)
         if name == "torch":
             return FakeTorch
@@ -182,7 +186,7 @@ def test_optional_import_is_lazy_and_missing_module_is_explicit():
     with pytest.raises(BackendUnavailableError, match="torch_directml"):
         windows_resolver.resolve("directml")
 
-    def broken_importer(name):
+    def broken_importer(name: str) -> object:
         raise ModuleNotFoundError(name="required_dependency")
 
     with pytest.raises(BackendImportError, match="required_dependency"):
@@ -191,7 +195,7 @@ def test_optional_import_is_lazy_and_missing_module_is_explicit():
         )
 
 
-def test_supported_capabilities_keep_backend_failures_visible():
+def test_supported_capabilities_keep_backend_failures_visible() -> None:
     capabilities = get_supported_device_capabilities(
         modules={
             "torch": FakeTorch,
@@ -211,7 +215,7 @@ def test_supported_capabilities_keep_backend_failures_visible():
     assert "requires platform windows" in capabilities["directml"].reason
 
 
-def test_module_level_resolve_api_accepts_a_resolver():
+def test_module_level_resolve_api_accepts_a_resolver() -> None:
     resolver = DeviceResolver(modules={"torch": FakeTorch}, platform_name="linux")
     selection = resolve_device("cuda", device_index=0, resolver=resolver)
     assert selection.runtime_device == "torch:cuda:0"

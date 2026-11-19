@@ -1,3 +1,7 @@
+"""AudioQueryからESPnet向け韻律トークン列への変換を検証する。"""
+
+from __future__ import annotations
+
 from coeirocore.model import AccentPhrase, AudioQuery, Mora
 from coeirocore.query_manager import query2tokens_prosody
 
@@ -13,7 +17,7 @@ def _mora(text: str, consonant: str | None, vowel: str) -> Mora:
     )
 
 
-def test_query_to_tokens_prosody():
+def test_query_to_tokens_prosody() -> None:
     query = AudioQuery(
         accent_phrases=[
             AccentPhrase(
@@ -58,7 +62,7 @@ def test_query_to_tokens_prosody():
     ]
 
 
-def test_empty_query_uses_end_token_without_exception_fallback():
+def test_empty_query_uses_end_token_without_exception_fallback() -> None:
     query = AudioQuery.model_construct(accent_phrases=[])
 
     assert query2tokens_prosody(query) == ["^", "$"]

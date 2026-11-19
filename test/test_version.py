@@ -1,3 +1,7 @@
+"""Core本体・OpenCLネイティブ拡張・uv.lockのバージョン同期を検証する。"""
+
+from __future__ import annotations
+
 import tomllib
 from pathlib import Path
 

@@ -1,11 +1,15 @@
 """GPUがないビルド環境でも、音声補正のCUDAカーネルを実際にコンパイルする。"""
 
+from __future__ import annotations
+
 import pytest
 
 from coeirocore.voice_smoothing_gpu import _source
 
+pytestmark = pytest.mark.cuda
 
-def test_cuda_kernels_compile_with_nvrtc():
+
+def test_cuda_kernels_compile_with_nvrtc() -> None:
     nvrtc = pytest.importorskip("cupy_backends.cuda.libs.nvrtc")
     program = nvrtc.createProgram(_source(), "voice_smoothing.cu", (), ())
     try:
