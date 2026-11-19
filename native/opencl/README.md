@@ -1,11 +1,24 @@
 # COEIROINK OpenCLバックエンド
 
-CUDAを利用できないLinux環境のGPUで、COEIROINK CoreのPyTorch推論を実行するためのバックエンドです。`pytorch_dlprim`と`dlprimitives`を固定したコミットからビルドし、PyTorchのPrivateUse1デバイスを`ocl`として登録します。
+CUDAを使えないLinux環境のGPUで、COEIROINK CoreのPyTorch推論を実行するためのバックエンドです。固定コミットの`pytorch_dlprim`と`dlprimitives`からビルドし、PyTorchのPrivateUse1デバイスを`ocl`として登録します。
 
-Coreが追加したVITS演算と、pytorch_dlprimが対応する演算はOpenCLで実行します。未登録の演算は警告を出し、CPUへフォールバックします。警告はそのまま表示されます。
+## 動作仕様
 
-VITSの行列積と畳み込みでは、タイルの構成を文章の長さに依存させません。畳み込みの時間長をOpenCLカーネルの実行時引数として渡すため、生成する音声の長さが変わってもコンパイル済みカーネルを再利用できます。
+- **OpenCL実行とフォールバック**：Coreが追加したVITS演算と`pytorch_dlprim`が対応する演算をOpenCLで実行します。未登録の演算は警告を出してCPUへフォールバックし、警告メッセージはそのまま表示します。
+- **可変長でのカーネル再利用**：VITSの行列積と畳み込みでは、タイル構成を文章の長さに依存させません。畳み込みの時間長をカーネル実行時引数として渡すため、音声長が変わってもコンパイル済みカーネルを再利用できます。
 
-ビルドにはOpenCL C++ヘッダー、ICDローダー、SQLite 3の開発用ヘッダーが必要です。導入方法とuv extraについては、[ルートのREADME](../../README.md)を参照してください。GPUドライバはwheelに含まれないため、利用するGPUに対応したドライバを別途インストールしてください。
+## 要件と導入
 
-DLPrimitivesは、AMD・Intel GPU向けのコンパイル済みカーネルを`$HOME/.dlprimitives/cache.db`へ保存します。同じデバイスとドライバを使う次回の起動では、このキャッシュを再利用します。NVIDIAでは、ドライバ内蔵のキャッシュを利用します。保存先は`DLPRIM_CACHE_DIR`で変更でき、`DLPRIM_CACHE_DISABLE=1`で無効にできます。
+- **ビルド要件**：OpenCL C++ヘッダー、ICDローダー、SQLite 3の開発用ヘッダーが必要です。
+- **GPUドライバ**：wheelには含まれないため、使用するGPUに対応したドライバを別途インストールしてください。
+- **導入手順**：インストールコマンドとuvのextra指定は[ルートREADME](../../README.md)を参照してください。
+
+## カーネルキャッシュ
+
+- **AMDとIntel GPU**：コンパイル済みカーネルを`$HOME/.dlprimitives/cache.db`へ保存し、同じデバイスとドライバの組み合わせで次回起動時に再利用します。
+- **NVIDIA GPU**：ドライバ内蔵のキャッシュを利用します。
+
+| 環境変数 | 説明 |
+| --- | --- |
+| `DLPRIM_CACHE_DIR` | キャッシュファイルの保存先ディレクトリを変更 |
+| `DLPRIM_CACHE_DISABLE=1` | カーネルキャッシュを無効化 |
