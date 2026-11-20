@@ -1,4 +1,4 @@
-"""音声補正のCPU/GPU共通処理（母音区間抽出と入力検証）をparselmouthなしで検証する。"""
+# 音声補正のCPU/GPU共通処理である母音区間抽出と入力検証を、parselmouthなしで検証するテスト
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""モデルを読み込む前に、必要な空きメモリがあるか確認する。"""
+# モデルの読み込みに必要な空きメモリの事前確認
 
 from __future__ import annotations
 
@@ -64,9 +64,8 @@ def _process_cgroup_directories() -> tuple[tuple[Path, Path, str, str], ...]:
     return tuple(directories)
 
 
+# 未使用のファイルキャッシュから書き戻しが必要なページを除いた量を返す。
 def _reclaimable_file_cache(directory: Path, *, cgroup_v1: bool) -> int:
-    """未使用のファイルキャッシュから、書き戻しが必要なページを除いた量を返す。"""
-
     try:
         stats = {
             name: int(value)
@@ -159,8 +158,28 @@ def model_load_memory_error(
     resident_device_bytes: int,
     reclaimable_bytes: int = 0,
 ) -> str | None:
-    """安全マージンを考慮してもモデルを読み込めるか確認し、不足時は理由を返す。"""
+    """
+    安全マージンを考慮してもモデルを読み込めるか確認し、不足時は理由を返す。
 
+    Parameters
+    ----------
+    model_path : Path
+        読み込むモデルのチェックポイント
+    selection : DeviceSelection
+        モデルを配置するデバイス
+    generator_only : bool
+        推論用generatorだけを読み込むか
+        Trueの場合は必要量を小さく見積もる。
+    resident_device_bytes : int
+        読み込み済みモデルがデバイス上で使っている推定バイト数で、OpenCLの空き容量の推定に使う。
+    reclaimable_bytes : int
+        読み込み前に解放できる推定バイト数
+
+    Returns
+    -------
+    str | None
+        容量が足りる場合はNone、不足する場合は不足の内容を表す文字列
+    """
     checkpoint_bytes = model_path.stat().st_size
     # 全体ローダーではモデル構造、state_dict、一時領域が同時にメモリを使う。generator-onlyはmmapから必要な重みだけをコピーする。
     host_load_bytes = math.ceil(checkpoint_bytes * (1.5 if generator_only else 3.0))

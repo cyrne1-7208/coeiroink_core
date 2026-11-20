@@ -1,4 +1,4 @@
-"""非推奨のPyWorldパッケージ初期化を通さず、ネイティブ拡張を読み込む。"""
+# 非推奨のPyWorldパッケージ初期化を通さずにネイティブ拡張を読み込む処理
 
 from __future__ import annotations
 
@@ -36,10 +36,9 @@ def _load_extension(extension_path: Path) -> ModuleType:
     return extension
 
 
+# 非推奨のpkg_resourcesを使う初期化処理を避け、PyWorldの拡張モジュールを直接読み込む。
 @lru_cache(maxsize=1)
 def load_pyworld() -> ModuleType:
-    """非推奨のpkg_resourcesを使う初期化処理を避け、PyWorldの拡張モジュールを直接読み込む。"""
-
     try:
         distribution = importlib.metadata.distribution("pyworld")
     except importlib.metadata.PackageNotFoundError as error:

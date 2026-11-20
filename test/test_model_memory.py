@@ -1,4 +1,4 @@
-"""モデル読み込み前のホスト・GPU・cgroupメモリ残量ガードを検証する。"""
+# モデル読み込み前のホスト・GPU・cgroupメモリ残量ガードのテスト
 
 from __future__ import annotations
 

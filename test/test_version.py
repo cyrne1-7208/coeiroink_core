@@ -1,4 +1,4 @@
-"""Core本体・OpenCLネイティブ拡張・uv.lockのバージョン同期を検証する。"""
+# Core本体・OpenCLネイティブ拡張・uv.lockのバージョン同期のテスト
 
 from __future__ import annotations
 
@@ -29,9 +29,8 @@ def _locked_versions(package_name: str) -> set[str]:
     }
 
 
+# Core本体と同時に配布するOpenCL拡張のバージョン同期漏れを検出する。
 def test_core_and_native_package_versions_match() -> None:
-    """Core本体と同時に配布するOpenCL拡張のバージョン同期漏れを検出する。"""
-
     project = _load_toml(REPOSITORY_ROOT / "pyproject.toml")
     core_version = project["project"]["version"]
     opencl_version = _project_version(

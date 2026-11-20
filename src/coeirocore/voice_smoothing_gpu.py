@@ -1,14 +1,30 @@
-"""周期検出から波形補正までを、選択されたCUDA/OpenCLデバイスで実行する。"""
+# 周期検出から波形補正までを、選択されたCUDA/OpenCLデバイスで実行する処理
 
 import re
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
+import numpy.typing as npt
 
 from .devices import DeviceBackend, DeviceSelection
-from .voice_smoothing_common import _prepare_spans
+from .voice_smoothing_common import (
+    _MAGNITUDE_SIGMA,
+    _ONSET_PROTECTION,
+    _PERIOD_SIGMA,
+    _PITCH_FLOOR,
+    _PITCH_TIME_STEP,
+    _prepare_spans,
+)
+
+if TYPE_CHECKING:
+    import cupy
+    import pyopencl.array
+
+    # CUDAではcupy.ndarray、OpenCLではpyopencl.array.Arrayになるデバイス上の配列
+    DeviceArray = cupy.ndarray | pyopencl.array.Array
 
 _KERNEL_DIR = Path(__file__).with_name("voice_smoothing_kernels")
 _FRAME_BATCH = 256
@@ -24,12 +40,12 @@ def _source() -> str:
 
 
 class _OpenCL:
-    def __init__(self, selection: DeviceSelection):
+    def __init__(self, selection: DeviceSelection) -> None:
         import pyopencl as cl
         import pyopencl.array as arrays
 
         self.arrays = arrays
-        platform = cl.get_platforms()[selection.platform_index]
+        platform = cl.get_platforms()[cast(int, selection.platform_index)]
         device = platform.get_devices()[selection.device_index]
         self.context = cl.Context([device])
         self.queue = cl.CommandQueue(self.context)
@@ -39,20 +55,28 @@ class _OpenCL:
         }
 
     @contextmanager
-    def execution(self):
+    def execution(self) -> Iterator[None]:
         try:
             yield
         finally:
             # 例外時にも処理中のバッファを残したまま次の合成へ進まない。
             self.queue.finish()
 
-    def empty(self, shape, dtype=np.float32):
+    def empty(
+        self, shape: int | tuple[int, ...], dtype: npt.DTypeLike = np.float32
+    ) -> pyopencl.array.Array:
         return self.arrays.empty(self.queue, shape, dtype)
 
-    def upload(self, data):
+    def upload(self, data: npt.ArrayLike) -> pyopencl.array.Array:
         return self.arrays.to_device(self.queue, np.asarray(data))
 
-    def run(self, name, size, *args, local=None):
+    def run(
+        self,
+        name: str,
+        size: tuple[int, ...],
+        *args: object,
+        local: tuple[int, ...] | None = None,
+    ) -> None:
         self.kernels[name](
             self.queue,
             size,
@@ -65,7 +89,7 @@ class _OpenCL:
 
 
 class _CUDA:
-    def __init__(self, selection: DeviceSelection):
+    def __init__(self, selection: DeviceSelection) -> None:
         import cupy as cp
 
         self.cp = cp
@@ -80,7 +104,7 @@ class _CUDA:
             self.kernels = {name: self.module.get_function(name) for name in names}
 
     @contextmanager
-    def execution(self):
+    def execution(self) -> Iterator[None]:
         with self.device, self.stream, self.cp.cuda.using_allocator(self.pool.malloc):
             try:
                 yield
@@ -88,13 +112,21 @@ class _CUDA:
                 self.stream.synchronize()
                 self.pool.free_all_blocks()
 
-    def empty(self, shape, dtype=np.float32):
+    def empty(
+        self, shape: int | tuple[int, ...], dtype: npt.DTypeLike = np.float32
+    ) -> cupy.ndarray:
         return self.cp.empty(shape, dtype)
 
-    def upload(self, data):
+    def upload(self, data: npt.ArrayLike) -> cupy.ndarray:
         return self.cp.asarray(data)
 
-    def run(self, name, size, *args, local=None):
+    def run(
+        self,
+        name: str,
+        size: tuple[int, ...],
+        *args: object,
+        local: tuple[int, ...] | None = None,
+    ) -> None:
         if local is not None:
             block = tuple(int(value) for value in local)
         elif len(size) == 2:
@@ -108,12 +140,12 @@ class _CUDA:
         self.kernels[name](grid, block, args)
 
 
+# GPUで音声を補正するクラス
+# リソースはAudioManagerごとに保持し、推論ロックで直列化する。
 class GpuVoiceSmoother:
-    """GPUで音声を補正する。リソースはAudioManagerごとに保持し、推論ロックで直列化する。"""
-
-    def __init__(self, selection: DeviceSelection):
+    def __init__(self, selection: DeviceSelection) -> None:
         if selection.backend is DeviceBackend.CUDA:
-            self.runtime = _CUDA(selection)
+            self.runtime: _CUDA | _OpenCL = _CUDA(selection)
         elif selection.backend is DeviceBackend.OPENCL:
             self.runtime = _OpenCL(selection)
         else:
@@ -129,7 +161,9 @@ class GpuVoiceSmoother:
         hop_length: int,
     ) -> np.ndarray:
         spans = _prepare_spans(wave, tokens, duration_frames, sampling_rate, hop_length)
-        if not any(right - left > 0.1 * sampling_rate for left, right in spans):
+        if not any(
+            right - left > _ONSET_PROTECTION * sampling_rate for left, right in spans
+        ):
             return wave
         # 既存APIとの互換性を保つため、NumPy配列を受け取り、波形の解析と補正だけをGPUで行う。
         with self.runtime.execution():
@@ -138,7 +172,7 @@ class GpuVoiceSmoother:
             raise RuntimeError("GPU voice smoothing produced an invalid waveform")
         return result.astype(wave.dtype, copy=False)
 
-    def _slopes(self, wave, n, rows=1):
+    def _slopes(self, wave: DeviceArray, n: int, rows: int = 1) -> DeviceArray:
         edges = self.runtime.empty((rows, 2))
         output = self.runtime.empty((rows, n))
         self.runtime.run(
@@ -149,20 +183,20 @@ class GpuVoiceSmoother:
         )
         return output
 
-    def _weights(self, sigma):
+    def _weights(self, sigma: float) -> tuple[DeviceArray, int]:
         radius = int(4 * sigma + 0.5)
         values = self.runtime.empty(2 * radius + 1)
         self.runtime.run(
             "gaussian_weights", (1,), np.float32(sigma), np.int32(radius), values
         )
-        return values, np.int32(radius)
+        return values, radius
 
-    def _pulses(self, wave, sampling_rate):
+    def _pulses(self, wave: DeviceArray, sampling_rate: int) -> tuple[DeviceArray, int]:
         n = wave.size
         sr = sampling_rate
-        frames = int(np.floor((n / sr - 2 / 65) / 0.005)) + 1
-        first = 0.5 * (n - (frames - 1) * 0.005 * sr) - 0.5
-        period = int(sr / 65)
+        frames = int(np.floor((n / sr - 2 / _PITCH_FLOOR) / _PITCH_TIME_STEP)) + 1
+        first = 0.5 * (n - (frames - 1) * _PITCH_TIME_STEP * sr) - 0.5
+        period = int(sr / _PITCH_FLOOR)
         window = 2 * (period // 2 - 1)
         i, f = np.int32, np.float32
         empty, run = self.runtime.empty, self.runtime.run
@@ -227,44 +261,18 @@ class GpuVoiceSmoother:
         )
         return raster, frames
 
-    def _smooth(self, source, spans, sr):
+    # 補正区間ごとに、周期単位の音色の細かな揺れを弱めた波形を返す。
+    def _smooth_magnitude(
+        self,
+        wave: DeviceArray,
+        marks: DeviceArray,
+        descriptors: np.ndarray,
+        periods: np.ndarray,
+        sr: int,
+    ) -> DeviceArray:
         i, f = np.int32, np.float32
         empty, run = self.runtime.empty, self.runtime.run
-        wave = self.runtime.upload(np.asarray(source, np.float32))
         n = wave.size
-        raster, pitch_frames = self._pulses(wave, sr)
-        span_data = self.runtime.upload(np.asarray(spans, np.int32))
-        # 1群は9周期以上。音素由来の区間は重ならず、群数は5msピッチフレーム数より少ない。
-        marks = empty(n)
-        groups = empty((pitch_frames + len(spans), 4), np.int32)
-        state = empty(2, np.int32)
-        run(
-            "collect_groups",
-            (1,),
-            raster,
-            i(n),
-            span_data,
-            i(len(spans)),
-            f(sr),
-            marks,
-            groups,
-            state,
-        )
-        group_count, used = state.get()
-        if not group_count:
-            return source
-        medians, scratch = empty(group_count), empty(used)
-        run(
-            "group_medians",
-            (int(group_count),),
-            marks,
-            groups,
-            i(group_count),
-            scratch,
-            medians,
-        )
-        # CPUへ戻すのは補正区間を表す小さなデータだけで、F0、周期列、音色はGPU内で解析する。
-        descriptors, periods = groups[:group_count].get(), medians.get()
         wave_slopes = self._slopes(wave, n)
         numerator, denominator = empty(n), empty(n)
         numerator.fill(0)
@@ -280,7 +288,7 @@ class GpuVoiceSmoother:
         for (first, count, left, right), period in zip(
             descriptors, periods, strict=True
         ):
-            weights, radius = self._weights(0.015 * sr / float(period))
+            weights, radius = self._weights(_MAGNITUDE_SIGMA * sr / float(period))
             for start in range(0, count - 2, _FRAME_BATCH):
                 stop = min(start + _FRAME_BATCH, count - 2)
                 low, high = max(0, start - radius), min(count - 2, stop + radius)
@@ -308,7 +316,7 @@ class GpuVoiceSmoother:
                     i(selected),
                     logs,
                     weights,
-                    radius,
+                    i(radius),
                     adjusted,
                 )
                 run(
@@ -325,7 +333,10 @@ class GpuVoiceSmoother:
                 for parity in (0, 1):
                     run(
                         "overlap_add",
-                        (int(np.ceil(2 * sr / 65)) + 2, (selected + 1) // 2),
+                        (
+                            int(np.ceil(2 * sr / _PITCH_FLOOR)) + 2,
+                            (selected + 1) // 2,
+                        ),
                         delta,
                         delta_slopes,
                         marks,
@@ -347,6 +358,20 @@ class GpuVoiceSmoother:
                 i(count),
                 f(sr),
             )
+        return shaped
+
+    # 補正区間ごとに、周期間隔の細かな揺れを弱めた波形を返す。
+    def _smooth_periods(
+        self,
+        shaped: DeviceArray,
+        marks: DeviceArray,
+        descriptors: np.ndarray,
+        periods: np.ndarray,
+        sr: int,
+    ) -> DeviceArray:
+        i, f = np.int32, np.float32
+        empty, run = self.runtime.empty, self.runtime.run
+        n = shaped.size
         shape_slopes = self._slopes(shaped, n)
         result = shaped.copy()
         for (first, count, left, right), period in zip(
@@ -354,7 +379,7 @@ class GpuVoiceSmoother:
         ):
             logs, targets = empty(count - 1), empty(count - 1)
             destination, inverse = empty(count), empty(count)
-            weights, radius = self._weights(0.025 * sr / float(period))
+            weights, radius = self._weights(_PERIOD_SIGMA * sr / float(period))
             run("log_periods", (int(count - 1),), marks, i(first), i(count), logs)
             run(
                 "target_periods",
@@ -362,7 +387,7 @@ class GpuVoiceSmoother:
                 logs,
                 i(count),
                 weights,
-                radius,
+                i(radius),
                 targets,
             )
             run(
@@ -397,6 +422,50 @@ class GpuVoiceSmoother:
                 f(sr),
                 result,
             )
+        return result
+
+    def _smooth(
+        self, source: np.ndarray, spans: list[tuple[int, int]], sr: int
+    ) -> np.ndarray:
+        i, f = np.int32, np.float32
+        empty, run = self.runtime.empty, self.runtime.run
+        wave = self.runtime.upload(np.asarray(source, np.float32))
+        n = wave.size
+        raster, pitch_frames = self._pulses(wave, sr)
+        span_data = self.runtime.upload(np.asarray(spans, np.int32))
+        # 1群は9周期以上で、音素由来の区間は重ならず、群数は5msピッチフレーム数より少ない。
+        marks = empty(n)
+        groups = empty((pitch_frames + len(spans), 4), np.int32)
+        state = empty(2, np.int32)
+        run(
+            "collect_groups",
+            (1,),
+            raster,
+            i(n),
+            span_data,
+            i(len(spans)),
+            f(sr),
+            marks,
+            groups,
+            state,
+        )
+        group_count, used = state.get()
+        if not group_count:
+            return source
+        medians, scratch = empty(group_count), empty(used)
+        run(
+            "group_medians",
+            (int(group_count),),
+            marks,
+            groups,
+            i(group_count),
+            scratch,
+            medians,
+        )
+        # CPUへ戻すのは補正区間を表す小さなデータだけで、F0、周期列、音色はGPU内で解析する。
+        descriptors, periods = groups[:group_count].get(), medians.get()
+        shaped = self._smooth_magnitude(wave, marks, descriptors, periods, sr)
+        result = self._smooth_periods(shaped, marks, descriptors, periods, sr)
         blocks = (n + 1023) // 1024
         parts, scale = empty((blocks, 2)), empty(1)
         run("wave_energy", (blocks * 256,), wave, result, i(n), parts, local=(256,))

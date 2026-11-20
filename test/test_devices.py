@@ -1,4 +1,4 @@
-"""CPU・CUDA・DirectML・OpenCLのデバイス解決と遅延import境界を検証する。"""
+# CPU・CUDA・DirectML・OpenCLのデバイス解決と遅延import境界のテスト
 
 from __future__ import annotations
 

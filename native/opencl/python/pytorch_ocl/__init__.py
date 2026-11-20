@@ -1,4 +1,4 @@
-"""OpenCL PrivateUse1バックエンドをPyTorch 2.10へ接続する実行時バインディング。"""
+# OpenCL PrivateUse1バックエンドをPyTorch 2.14へ接続する実行時バインディング
 
 import pyopencl as cl
 import torch
@@ -55,9 +55,8 @@ def current_device() -> int:
     return int(torch._C._accelerator_getDeviceIndex())
 
 
+# 現在のOpenCLデバイスを一時的に切り替えるコンテキストマネージャー
 class device:
-    """現在のOpenCLデバイスを一時的に切り替えるコンテキストマネージャー。"""
-
     def __init__(self, device: int | str | torch.device | None) -> None:
         self.idx = _device_index(device)
         self.prev_idx = -1
@@ -86,9 +85,8 @@ def empty_cache() -> None:
     impl_empty_cache()
 
 
+# `torch._register_device_module`が要求するCUDA互換の最小デバイスAPI
 class _OCL:
-    """`torch._register_device_module`が要求するCUDA互換の最小デバイスAPI。"""
-
     device = device
     device_count = staticmethod(device_count)
     is_available = staticmethod(is_available)

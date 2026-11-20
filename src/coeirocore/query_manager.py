@@ -1,9 +1,8 @@
 from coeirocore.model import AudioQuery
 
 
+# VOICEVOX形式のアクセント句をESPnetの日本語プロソディ記号列へ変換する。
 def query2tokens_prosody(query: AudioQuery) -> list[str]:
-    """VOICEVOX形式のアクセント句をESPnetの日本語プロソディ記号列へ変換する。"""
-
     tokens = ["^"]
     for i, accent_phrase in enumerate(query.accent_phrases):
         up_token_flag = False

@@ -1,4 +1,4 @@
-"""AudioManagerのモデル遅延読み込み・LRU管理・メモリガード・排他制御を検証する。"""
+# AudioManagerのモデル遅延読み込み・LRU管理・メモリガード・排他制御のテスト
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import threading
 import time
 import weakref
 from concurrent.futures import ThreadPoolExecutor
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -20,6 +20,9 @@ from coeirocore.coeiro_manager import (
     ModelLoadError,
 )
 from coeirocore.devices import DeviceBackend, DeviceSelection
+
+if TYPE_CHECKING:
+    from conftest import SpeakerLayout
 
 MIB = 1024 * 1024
 
@@ -41,7 +44,7 @@ def _cyclic_model_cls(
 
 
 def test_audio_manager_cache_key_includes_speaker_uuid(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     fake_espnet_model_cls: type,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -80,7 +83,7 @@ def test_audio_manager_cache_key_includes_speaker_uuid(
 
 
 def test_audio_manager_loads_lazily_and_reuses_model(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     fake_espnet_model_cls: type,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -106,7 +109,7 @@ def test_audio_manager_loads_lazily_and_reuses_model(
 
 
 def test_audio_manager_loads_and_reuses_all_models_when_requested(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     fake_espnet_model_cls: type,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -141,7 +144,7 @@ def test_audio_manager_loads_and_reuses_all_models_when_requested(
 
 
 def test_audio_manager_keeps_most_recently_used_models(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     fake_espnet_model_cls: type,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -179,7 +182,7 @@ def test_audio_manager_keeps_most_recently_used_models(
 
 @pytest.mark.parametrize("max_loaded_models", [2, None])
 def test_audio_manager_evicts_lru_model_under_memory_pressure(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     fake_espnet_model_cls: type,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -233,7 +236,7 @@ def test_audio_manager_evicts_lru_model_under_memory_pressure(
 
 @pytest.mark.parametrize("max_loaded_models", [1, None])
 def test_audio_manager_checks_largest_model_at_startup_and_actual_model_on_switch(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     fake_espnet_model_cls: type,
     monkeypatch: pytest.MonkeyPatch,
     max_loaded_models: int | None,
@@ -283,7 +286,7 @@ def test_audio_manager_checks_largest_model_at_startup_and_actual_model_on_switc
 
 @pytest.mark.parametrize("dangerous_skip_check", [False, True])
 def test_all_model_startup_does_not_hide_a_failed_checkpoint(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     fake_espnet_model_cls: type,
     monkeypatch: pytest.MonkeyPatch,
     dangerous_skip_check: bool,
@@ -322,7 +325,7 @@ def test_all_model_startup_does_not_hide_a_failed_checkpoint(
 
 @pytest.mark.parametrize("max_loaded_models", [1, None])
 def test_dangerous_override_warns_but_keeps_the_model_count_limit(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     fake_espnet_model_cls: type,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -358,7 +361,7 @@ def test_dangerous_override_warns_but_keeps_the_model_count_limit(
 
 @pytest.mark.parametrize("max_loaded_models", [1, 2])
 def test_audio_manager_keeps_loaded_model_when_new_model_cannot_fit(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     fake_espnet_model_cls: type,
     monkeypatch: pytest.MonkeyPatch,
     max_loaded_models: int,
@@ -402,7 +405,7 @@ def test_audio_manager_keeps_loaded_model_when_new_model_cannot_fit(
 
 @pytest.mark.parametrize("switch_speaker", [False, True])
 def test_audio_manager_releases_model_before_forced_reload(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     fake_espnet_model_cls: type,
     monkeypatch: pytest.MonkeyPatch,
     switch_speaker: bool,
@@ -437,7 +440,7 @@ def test_audio_manager_releases_model_before_forced_reload(
 
 
 def test_audio_manager_clears_opencl_cache_after_model_eviction(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     fake_espnet_model_cls: type,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -468,7 +471,7 @@ def test_audio_manager_clears_opencl_cache_after_model_eviction(
 
 
 def test_synthesis_releases_model_reference_before_postprocessing(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     fake_espnet_model_cls: type,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -495,7 +498,7 @@ def test_synthesis_releases_model_reference_before_postprocessing(
 
 
 def test_audio_manager_serializes_concurrent_inference(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     fake_espnet_model_cls: type,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

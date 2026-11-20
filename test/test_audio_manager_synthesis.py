@@ -1,9 +1,10 @@
-"""AudioManagerの推論・ポーズ調整・音声補正連携・パラメータ検証を検証する。"""
+# AudioManagerの推論・ポーズ調整・音声補正連携・パラメータ検証のテスト
 
 from __future__ import annotations
 
 import sys
 from types import ModuleType
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -19,9 +20,12 @@ from coeirocore.coeiro_manager import (
     SynthesisError,
 )
 
+if TYPE_CHECKING:
+    from conftest import SpeakerLayout
+
 
 def test_predict_with_duration_returns_untrimmed_wave_and_frames(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     fake_espnet_model_cls: type,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -56,7 +60,7 @@ def test_predict_with_duration_returns_untrimmed_wave_and_frames(
 
 @pytest.mark.parametrize("text", [["^", "a", "_", "i", "$"], "あ、い"])
 def test_audio_manager_changes_only_internal_pause_when_requested(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     fake_espnet_model_cls: type,
     monkeypatch: pytest.MonkeyPatch,
     text: list[str] | str,
@@ -96,7 +100,7 @@ def test_audio_manager_changes_only_internal_pause_when_requested(
 
 
 def test_audio_manager_rejects_pause_output_over_limit(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     fake_espnet_model_cls: type,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -128,7 +132,7 @@ def test_audio_manager_rejects_pause_output_over_limit(
 
 @pytest.mark.parametrize("text", [["^", "a", "$"], "あ"])
 def test_voice_smoothing_uses_one_prediction_and_leaves_raw_apis_unchanged(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     fake_espnet_model_cls: type,
     monkeypatch: pytest.MonkeyPatch,
     text: list[str] | str,
@@ -189,7 +193,7 @@ def test_voice_smoothing_uses_one_prediction_and_leaves_raw_apis_unchanged(
 
 
 def test_disabled_voice_smoothing_needs_no_optional_module(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     speaker_layout.add_speaker()
@@ -201,7 +205,9 @@ def test_disabled_voice_smoothing_needs_no_optional_module(
     assert manager.smooth_voice(wave, [], [], hop_length=512) is wave
 
 
-def test_voice_smoothing_reports_the_original_failure(speaker_layout) -> None:
+def test_voice_smoothing_reports_the_original_failure(
+    speaker_layout: SpeakerLayout,
+) -> None:
     speaker_layout.add_speaker()
     manager = AudioManager(speaker_info_dir=speaker_layout.root)
     failure = RuntimeError("pitch analysis failed")
@@ -214,7 +220,7 @@ def test_voice_smoothing_reports_the_original_failure(speaker_layout) -> None:
 
 
 def test_predict_uses_composite_model_identity(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     fake_espnet_model_cls: type,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -243,7 +249,7 @@ def test_predict_uses_composite_model_identity(
     assert np.array_equal(second, np.full(4, 2, dtype=np.float32))
 
 
-def test_reports_unknown_style(speaker_layout) -> None:
+def test_reports_unknown_style(speaker_layout: SpeakerLayout) -> None:
     speaker_layout.add_speaker()
     manager = AudioManager(speaker_info_dir=speaker_layout.root)
 
@@ -252,7 +258,7 @@ def test_reports_unknown_style(speaker_layout) -> None:
 
 
 def test_wraps_corrupt_model_error(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     speaker_layout.add_speaker()
@@ -279,7 +285,7 @@ def test_wraps_corrupt_model_error(
     ],
 )
 def test_rejects_invalid_synthesis_parameters(
-    speaker_layout,
+    speaker_layout: SpeakerLayout,
     parameter: str,
     value: float,
 ) -> None:

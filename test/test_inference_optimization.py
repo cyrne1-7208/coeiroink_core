@@ -1,4 +1,4 @@
-"""ESPnet VITS推論向け最適化（weight_norm固定・duration計算）を検証する。"""
+# ESPnet VITS推論向け最適化であるweight_norm固定とduration計算のテスト
 
 from __future__ import annotations
 

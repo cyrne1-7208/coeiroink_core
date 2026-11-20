@@ -1,4 +1,4 @@
-"""ESPnet VITSチェックポイントから推論に必要な重みだけを読み込む。"""
+# ESPnet VITSチェックポイントから推論に必要な重みだけを読み込む処理
 
 from __future__ import annotations
 
@@ -29,9 +29,8 @@ _VITS_TRAINING_MODULES = (
 )
 
 
+# COEIROINKが使用するText2Speechの推論用インターフェースだけを保持するクラス
 class GeneratorOnlyText2Speech:
-    """COEIROINKが使用するText2Speechの推論用インターフェースだけを保持する。"""
-
     def __init__(
         self,
         *,
@@ -68,7 +67,7 @@ class GeneratorOnlyText2Speech:
         config = self.decode_conf
         if decode_conf is not None:
             config = self.decode_conf | decode_conf
-        # 現行ESPnetのVITSは継続長も返すため、アライメントからの再集計は不要。
+        # 現行ESPnetのVITSは継続長も返すため、アライメントからの再集計は不要
         return self.model.inference(**batch, **config)
 
 
@@ -154,6 +153,7 @@ def _load_inference_state(model: torch.nn.Module, model_path: Path) -> None:
     model.load_state_dict(selected, strict=True, assign=False)
 
 
+# VITSの構造だけをPyTorchのmetaデバイス上で構築し、推論用generatorの重みを厳密に読み込む。
 def load_generator_only_text_to_speech(
     *,
     config_path: Path,
@@ -162,8 +162,6 @@ def load_generator_only_text_to_speech(
     noise_scale: float,
     noise_scale_dur: float,
 ) -> GeneratorOnlyText2Speech:
-    """VITSの構造だけをPyTorchのmetaデバイス上で構築し、推論用generatorの重みを厳密に読み込む。"""
-
     from espnet2.gan_tts.vits.vits import VITS
     from espnet2.tasks.tts import TTSTask
 

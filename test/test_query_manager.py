@@ -1,4 +1,4 @@
-"""AudioQueryからESPnet向け韻律トークン列への変換を検証する。"""
+# AudioQueryからESPnet向け韻律トークン列への変換のテスト
 
 from __future__ import annotations
 

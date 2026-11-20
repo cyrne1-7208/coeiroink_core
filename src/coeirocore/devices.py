@@ -1,8 +1,7 @@
-"""音声合成に使うデバイスを検出し、実行環境に合わせて選択する。
-
-モデル実行部分からデバイス検出とプラットフォーム判定を分離する。
-バックエンド固有のモジュールは必要になるまで読み込まず、CPU利用時にDirectMLやOpenCLを必須にしない。
-"""
+# 音声合成に使うデバイスの検出と実行環境に合わせた選択
+#
+# モデル実行部分からデバイス検出とプラットフォーム判定を分離する。
+# バックエンド固有のモジュールは必要になるまで読み込まず、CPU利用時にDirectMLやOpenCLを必須にしない。
 
 from __future__ import annotations
 
@@ -15,41 +14,47 @@ from operator import index as as_index
 from typing import Any
 
 
+# Coreが選択できる実行バックエンド
 class DeviceBackend(str, Enum):
-    """Coreが選択できる実行バックエンド。"""
-
     CPU = "cpu"
     CUDA = "cuda"
     DIRECTML = "directml"
     OPENCL = "opencl"
 
 
+# デバイス選択に関する基底エラー
 class DeviceError(RuntimeError):
-    """デバイス選択に関する基底エラー。"""
+    pass
 
 
+# バックエンド名、OS、または番号の指定が不正な場合のエラー
 class DeviceConfigurationError(DeviceError, ValueError):
-    """バックエンド名、OS、または番号の指定が不正な場合のエラー。"""
+    pass
 
 
+# バックエンドと実行OSの組み合わせが対応していない場合のエラー
 class DevicePlatformError(DeviceConfigurationError):
-    """バックエンドと実行OSの組み合わせが対応していない場合のエラー。"""
+    pass
 
 
+# デバイスまたはOpenCLプラットフォームの番号が不正な場合のエラー
 class DeviceIndexError(DeviceConfigurationError):
-    """デバイスまたはOpenCLプラットフォームの番号が不正な場合のエラー。"""
+    pass
 
 
+# バックエンドが未導入、未検出、または利用不能な場合のエラー
 class BackendUnavailableError(DeviceError):
-    """バックエンドが未導入、未検出、または利用不能な場合のエラー。"""
+    pass
 
 
+# バックエンドモジュールまたはその依存モジュールの読み込みエラー
 class BackendImportError(BackendUnavailableError):
-    """バックエンドモジュールまたはその依存モジュールの読み込みエラー。"""
+    pass
 
 
+# バックエンドに必要な検出APIが存在しない場合のエラー
 class BackendCapabilityError(BackendUnavailableError):
-    """バックエンドに必要な検出APIが存在しない場合のエラー。"""
+    pass
 
 
 _BACKEND_ALIASES = {
@@ -81,9 +86,8 @@ _PLATFORM_ALIASES = {
 }
 
 
+# バックエンド名の表記を統一する。
 def normalize_backend(value: str | DeviceBackend) -> DeviceBackend:
-    """バックエンド名の表記を統一する。"""
-
     if isinstance(value, DeviceBackend):
         return value
     if not isinstance(value, str):
@@ -92,16 +96,15 @@ def normalize_backend(value: str | DeviceBackend) -> DeviceBackend:
     normalized = value.strip().lower()
     try:
         return _BACKEND_ALIASES[normalized]
-    except KeyError as exc:
+    except KeyError as error:
         supported = ", ".join(backend.value for backend in DeviceBackend)
         raise ValueError(
             f"unsupported backend {value!r}; expected one of: {supported}"
-        ) from exc
+        ) from error
 
 
+# OS名の表記を検証用に統一する。
 def normalize_platform(value: str | None = None) -> str:
-    """OS名の表記を検証用に統一する。"""
-
     raw_value = sys.platform if value is None else value
     if not isinstance(raw_value, str):
         raise TypeError("platform must be a string or None")
@@ -110,12 +113,11 @@ def normalize_platform(value: str | None = None) -> str:
     return _PLATFORM_ALIASES.get(normalized, normalized)
 
 
+# 指定したバックエンドが現在のOSで動作するか検証する。
 def validate_platform(
     backend: str | DeviceBackend,
     platform: str | None = None,
 ) -> str:
-    """指定したバックエンドが現在のOSで動作するか検証する。"""
-
     normalized_backend = normalize_backend(backend)
     normalized_platform = normalize_platform(platform)
 
@@ -141,24 +143,22 @@ def validate_platform(
     return normalized_platform
 
 
+# Python整数とNumPy整数を受け付け、負数とboolは拒否する。
 def _normalize_index(value: int, name: str) -> int:
-    """Python整数とNumPy整数を受け付け、負数とboolは拒否する。"""
-
     if isinstance(value, bool):
         raise DeviceIndexError(f"{name} must be a non-negative integer")
     try:
         normalized = as_index(value)
-    except TypeError as exc:
-        raise DeviceIndexError(f"{name} must be a non-negative integer") from exc
+    except TypeError as error:
+        raise DeviceIndexError(f"{name} must be a non-negative integer") from error
     if normalized < 0:
         raise DeviceIndexError(f"{name} must be a non-negative integer")
     return normalized
 
 
+# 検証済みの設定と、Coreが実際に使うデバイス
 @dataclass(frozen=True, slots=True)
 class DeviceSelection:
-    """検証済みの設定と、Coreが実際に使うデバイスを保持する。"""
-
     backend: DeviceBackend
     device_index: int
     # OpenCLではdevice_indexがプラットフォーム内の番号、runtime_deviceのocl:Nが全プラットフォームを通した番号になる。
@@ -171,20 +171,18 @@ class DeviceSelection:
         return self.runtime_device
 
 
+# 利用可能性一覧に含めるデバイスの軽量情報
 @dataclass(frozen=True, slots=True)
 class DeviceDescriptor:
-    """利用可能性一覧に含めるデバイスの軽量情報。"""
-
     backend: DeviceBackend
     device_index: int
     platform_index: int | None = None
     name: str | None = None
 
 
+# バックエンドの利用可能性と検出結果
 @dataclass(frozen=True, slots=True)
 class DeviceCapability:
-    """バックエンドの利用可能性と検出結果。"""
-
     backend: DeviceBackend
     available: bool
     devices: tuple[DeviceDescriptor, ...] = ()
@@ -200,22 +198,19 @@ class DeviceCapability:
     def device_indices(self) -> tuple[int, ...]:
         return tuple(device.device_index for device in self.devices)
 
+    # 互換用に失敗理由を`error`名でも取得できるようにする。
     @property
     def error(self) -> str | None:
-        """失敗理由を`error`名で取得する互換用プロパティ。"""
-
         return self.reason
 
 
 ModuleImporter = Callable[[str], Any]
 
 
+# 実行環境を検査し、明示されたバックエンドのデバイスを解決するクラス
+#
+# `modules`または`module_overrides`にモックを渡すと、GPUドライバのない環境でも検出処理をテストできる。それ以外のバックエンドモジュールは必要になるまで読み込まない。
 class DeviceResolver:
-    """実行環境を検査し、明示されたバックエンドのデバイスを解決する。
-
-    `modules`または`module_overrides`にモックを渡すと、GPUドライバのない環境でも検出処理をテストできる。それ以外のバックエンドモジュールは、必要になるまで読み込まない。
-    """
-
     def __init__(
         self,
         *,
@@ -237,14 +232,13 @@ class DeviceResolver:
             platform_name if platform_name is not None else platform
         )
 
+    # バックエンド、デバイス番号、OpenCLプラットフォーム番号を解決する。
     def resolve(
         self,
         backend: str | DeviceBackend,
         device_index: int = 0,
         platform_index: int = 0,
     ) -> DeviceSelection:
-        """バックエンド、デバイス番号、OpenCLプラットフォーム番号を解決する。"""
-
         normalized_backend = normalize_backend(backend)
         normalized_device_index = _normalize_index(device_index, "device_index")
         normalized_platform_index = _normalize_index(platform_index, "platform_index")
@@ -261,32 +255,29 @@ class DeviceResolver:
             normalized_platform_index,
         )
 
+    # 指定したバックエンドが利用可能かを返す。
     def is_available(self, backend: str | DeviceBackend) -> bool:
-        """指定したバックエンドが利用可能かを返す。"""
-
         return self.get_supported_device_capabilities()[
             normalize_backend(backend)
         ].available
 
+    # 4種類のバックエンドを個別に検査する。
+    #
+    # 未導入バックエンドはCPUへ置き換えず、`available=False`と理由を返す。
+    # 予期しない例外は検出処理の外へ伝播させ、重大な障害を隠さない。
     def get_supported_device_capabilities(
         self,
     ) -> dict[DeviceBackend, DeviceCapability]:
-        """4種類のバックエンドを個別に検査する。
-
-        未導入バックエンドはCPUへ置き換えず、`available=False`と理由を返す。
-        予期しない例外は検出処理の外へ伝播させ、重大な障害を隠さない。
-        """
-
         capabilities: dict[DeviceBackend, DeviceCapability] = {}
         for backend in DeviceBackend:
             try:
                 validate_platform(backend, self.platform)
                 capabilities[backend] = self._probe_backend(backend)
-            except DeviceError as exc:
+            except DeviceError as error:
                 capabilities[backend] = DeviceCapability(
                     backend=backend,
                     available=False,
-                    reason=str(exc),
+                    reason=str(error),
                 )
         return capabilities
 
@@ -294,6 +285,7 @@ class DeviceResolver:
         module_name = _MODULE_NAMES[backend]
         return self._load_named_module(module_name, backend, use_backend_alias=True)
 
+    # 未導入モジュールと、導入済みモジュール内の依存関係エラーを区別して読み込む。
     def _load_named_module(
         self,
         module_name: str,
@@ -301,8 +293,6 @@ class DeviceResolver:
         *,
         use_backend_alias: bool = False,
     ) -> Any:
-        """未導入モジュールと、導入済みモジュール内の依存関係エラーを区別して読み込む。"""
-
         override_keys: tuple[str | DeviceBackend, ...] = (module_name,)
         if use_backend_alias:
             override_keys += (backend.value, backend)
@@ -322,20 +312,20 @@ class DeviceResolver:
 
         try:
             return self._module_importer(module_name)
-        except ModuleNotFoundError as exc:
-            missing_name = exc.name or module_name
+        except ModuleNotFoundError as error:
+            missing_name = error.name or module_name
             if missing_name == module_name:
                 raise BackendUnavailableError(
                     f"{backend.value} backend requires optional module {module_name!r}"
-                ) from exc
+                ) from error
             raise BackendImportError(
                 f"{backend.value} backend module {module_name!r} could not import "
                 f"dependency {missing_name!r}"
-            ) from exc
-        except ImportError as exc:
+            ) from error
+        except ImportError as error:
             raise BackendImportError(
-                f"{backend.value} backend module {module_name!r} could not be imported: {exc}"
-            ) from exc
+                f"{backend.value} backend module {module_name!r} could not be imported: {error}"
+            ) from error
 
     @staticmethod
     def _required_callable(
@@ -370,10 +360,10 @@ class DeviceResolver:
             value = value()
         try:
             count = as_index(value)
-        except TypeError as exc:
+        except TypeError as error:
             raise BackendCapabilityError(
                 f"{backend.value} backend {name!r} must return an integer"
-            ) from exc
+            ) from error
         if count < 0:
             raise BackendCapabilityError(
                 f"{backend.value} backend {name!r} returned a negative count"
@@ -389,10 +379,10 @@ class DeviceResolver:
         factory = DeviceResolver._required_callable(torch_module, "device", backend)
         try:
             return factory(value)
-        except Exception as exc:
+        except Exception as error:
             raise BackendCapabilityError(
-                f"{backend.value} backend could not create torch device {value!r}: {exc}"
-            ) from exc
+                f"{backend.value} backend could not create torch device {value!r}: {error}"
+            ) from error
 
     def _resolve_cpu(self, device_index: int) -> DeviceSelection:
         if device_index != 0:
@@ -410,7 +400,8 @@ class DeviceResolver:
             platform=self.platform,
         )
 
-    def _resolve_cuda(self, device_index: int) -> DeviceSelection:
+    # CUDAが利用可能か確認し、torchモジュールとデバイス数を返す。
+    def _available_cuda_devices(self) -> tuple[Any, int]:
         torch_module = self._load_module(DeviceBackend.CUDA)
         cuda_module = getattr(torch_module, "cuda", None)
         if cuda_module is None:
@@ -426,6 +417,10 @@ class DeviceResolver:
             raise BackendCapabilityError("CUDA backend does not provide device_count")
         if count == 0:
             raise BackendUnavailableError("CUDA backend reported zero devices")
+        return torch_module, count
+
+    def _resolve_cuda(self, device_index: int) -> DeviceSelection:
+        torch_module, count = self._available_cuda_devices()
         if device_index >= count:
             raise DeviceIndexError(
                 f"CUDA device_index {device_index} is out of range; device_count={count}"
@@ -441,7 +436,8 @@ class DeviceResolver:
             platform=self.platform,
         )
 
-    def _resolve_directml(self, device_index: int) -> DeviceSelection:
+    # DirectMLが利用可能か確認し、モジュールと取得できた場合のデバイス数を返す。
+    def _available_directml_devices(self) -> tuple[Any, int | None]:
         directml_module = self._load_module(DeviceBackend.DIRECTML)
         availability = getattr(directml_module, "is_available", None)
         if availability is not None and not self._read_bool(
@@ -452,7 +448,6 @@ class DeviceResolver:
             raise BackendUnavailableError(
                 "DirectML backend is not available on this host"
             )
-
         count = self._read_optional_count(
             directml_module,
             "device_count",
@@ -460,6 +455,10 @@ class DeviceResolver:
         )
         if count == 0:
             raise BackendUnavailableError("DirectML backend reported zero devices")
+        return directml_module, count
+
+    def _resolve_directml(self, device_index: int) -> DeviceSelection:
+        directml_module, count = self._available_directml_devices()
         if count is not None and device_index >= count:
             raise DeviceIndexError(
                 f"DirectML device_index {device_index} is out of range; device_count={count}"
@@ -472,10 +471,10 @@ class DeviceResolver:
         )
         try:
             runtime_device = factory(device_index)
-        except Exception as exc:
+        except Exception as error:
             raise BackendUnavailableError(
-                f"DirectML device {device_index} could not be created: {exc}"
-            ) from exc
+                f"DirectML device {device_index} could not be created: {error}"
+            ) from error
 
         return DeviceSelection(
             backend=DeviceBackend.DIRECTML,
@@ -485,7 +484,7 @@ class DeviceResolver:
         )
 
     def _opencl_platforms(self) -> list[Any]:
-        # pytorch_oclを読み込むと、PrivateUse1が`ocl`として登録される。
+        # pytorch_oclを読み込むとPrivateUse1が`ocl`として登録される。
         # pyopenclは、プラットフォームとデバイスの並びを上流バックエンドと揃えるために使う。
         self._load_module(DeviceBackend.OPENCL)
         opencl_module = self._load_named_module(
@@ -499,10 +498,10 @@ class DeviceResolver:
         )
         try:
             platforms = list(get_platforms())
-        except Exception as exc:
+        except Exception as error:
             raise BackendUnavailableError(
-                f"OpenCL platform detection failed: {exc}"
-            ) from exc
+                f"OpenCL platform detection failed: {error}"
+            ) from error
         if not platforms:
             raise BackendUnavailableError("OpenCL reported no platforms")
         return platforms
@@ -516,10 +515,10 @@ class DeviceResolver:
             )
         try:
             return list(get_devices())
-        except Exception as exc:
+        except Exception as error:
             raise BackendUnavailableError(
-                f"OpenCL device detection failed: {exc}"
-            ) from exc
+                f"OpenCL device detection failed: {error}"
+            ) from error
 
     def _resolve_opencl(
         self, device_index: int, platform_index: int
@@ -576,17 +575,7 @@ class DeviceResolver:
 
     def _probe_cuda(self) -> DeviceCapability:
         backend = DeviceBackend.CUDA
-        torch_module = self._load_module(backend)
-        cuda_module = getattr(torch_module, "cuda", None)
-        if cuda_module is None:
-            raise BackendCapabilityError("CUDA backend is missing torch.cuda")
-        if not self._read_bool(cuda_module, "is_available", backend):
-            raise BackendUnavailableError("CUDA backend is not available on this host")
-        count = self._read_optional_count(cuda_module, "device_count", backend)
-        if count is None:
-            raise BackendCapabilityError("CUDA backend does not provide device_count")
-        if count == 0:
-            raise BackendUnavailableError("CUDA backend reported zero devices")
+        _, count = self._available_cuda_devices()
         return DeviceCapability(
             backend=backend,
             available=True,
@@ -599,19 +588,7 @@ class DeviceResolver:
 
     def _probe_directml(self) -> DeviceCapability:
         backend = DeviceBackend.DIRECTML
-        directml_module = self._load_module(backend)
-        availability = getattr(directml_module, "is_available", None)
-        if availability is not None and not self._read_bool(
-            directml_module,
-            "is_available",
-            backend,
-        ):
-            raise BackendUnavailableError(
-                "DirectML backend is not available on this host"
-            )
-        count = self._read_optional_count(directml_module, "device_count", backend)
-        if count == 0:
-            raise BackendUnavailableError("DirectML backend reported zero devices")
+        _, count = self._available_directml_devices()
         self.resolve(backend, 0)
         known_devices = range(count) if count is not None else range(1)
         return DeviceCapability(
@@ -655,20 +632,39 @@ class DeviceResolver:
             platform_count=len(platforms),
         )
 
+    # デバイスを実際に生成し、バックエンドが利用可能か確認する。
     def _probe_backend(self, backend: DeviceBackend) -> DeviceCapability:
-        """デバイスを実際に生成し、バックエンドが利用可能か確認する。"""
-
         if backend is DeviceBackend.CPU:
             return self._probe_cpu()
         if backend is DeviceBackend.CUDA:
             return self._probe_cuda()
         if backend is DeviceBackend.DIRECTML:
             return self._probe_directml()
-        if backend is DeviceBackend.OPENCL:
-            return self._probe_opencl()
-        raise DeviceConfigurationError(f"unsupported backend: {backend}")
+        return self._probe_opencl()
 
 
+# 渡されたresolverか、設定から作ったresolverを返す。resolverと設定の同時指定は受け付けない。
+def _active_resolver(
+    resolver: DeviceResolver | None,
+    modules: Mapping[str | DeviceBackend, Any] | None,
+    module_overrides: Mapping[str | DeviceBackend, Any] | None,
+    module_importer: ModuleImporter | None,
+    platform_name: str | None,
+) -> DeviceResolver:
+    if resolver is not None and any(
+        value is not None
+        for value in (modules, module_overrides, module_importer, platform_name)
+    ):
+        raise ValueError("resolver cannot be combined with resolver configuration")
+    return resolver or DeviceResolver(
+        modules=modules,
+        module_overrides=module_overrides,
+        module_importer=module_importer,
+        platform_name=platform_name,
+    )
+
+
+# DeviceResolverを省略して、使用するデバイスを決定する。
 def resolve_device(
     backend: str | DeviceBackend,
     device_index: int = 0,
@@ -680,18 +676,8 @@ def resolve_device(
     module_importer: ModuleImporter | None = None,
     platform_name: str | None = None,
 ) -> DeviceSelection:
-    """DeviceResolverを省略して、使用するデバイスを決定する。"""
-
-    if resolver is not None and any(
-        value is not None
-        for value in (modules, module_overrides, module_importer, platform_name)
-    ):
-        raise ValueError("resolver cannot be combined with resolver configuration")
-    active_resolver = resolver or DeviceResolver(
-        modules=modules,
-        module_overrides=module_overrides,
-        module_importer=module_importer,
-        platform_name=platform_name,
+    active_resolver = _active_resolver(
+        resolver, modules, module_overrides, module_importer, platform_name
     )
     return active_resolver.resolve(
         backend,
@@ -700,6 +686,7 @@ def resolve_device(
     )
 
 
+# DeviceResolverを省略して全バックエンドの利用可否を調べる。
 def get_supported_device_capabilities(
     *,
     resolver: DeviceResolver | None = None,
@@ -708,18 +695,8 @@ def get_supported_device_capabilities(
     module_importer: ModuleImporter | None = None,
     platform_name: str | None = None,
 ) -> dict[DeviceBackend, DeviceCapability]:
-    """DeviceResolverを省略して、全バックエンドの利用可否を調べる。"""
-
-    if resolver is not None and any(
-        value is not None
-        for value in (modules, module_overrides, module_importer, platform_name)
-    ):
-        raise ValueError("resolver cannot be combined with resolver configuration")
-    active_resolver = resolver or DeviceResolver(
-        modules=modules,
-        module_overrides=module_overrides,
-        module_importer=module_importer,
-        platform_name=platform_name,
+    active_resolver = _active_resolver(
+        resolver, modules, module_overrides, module_importer, platform_name
     )
     return active_resolver.get_supported_device_capabilities()
 

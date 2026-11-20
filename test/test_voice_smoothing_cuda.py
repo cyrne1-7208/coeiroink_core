@@ -1,4 +1,4 @@
-"""GPUがないビルド環境でも、音声補正のCUDAカーネルを実際にコンパイルする。"""
+# GPUがないビルド環境でも音声補正のCUDAカーネルを実際にコンパイルするテスト
 
 from __future__ import annotations
 

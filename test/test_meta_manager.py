@@ -1,8 +1,9 @@
-"""MetaManagerの話者探索・検証・重複styleId解決を検証する。"""
+# MetaManagerの話者探索・検証・重複styleId解決のテスト
 
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -12,8 +13,11 @@ from coeirocore.coeiro_manager import (
     SpeakerInfoError,
 )
 
+if TYPE_CHECKING:
+    from conftest import SpeakerLayout
 
-def test_discovers_old_mycoeiroink(speaker_layout) -> None:
+
+def test_discovers_old_mycoeiroink(speaker_layout: SpeakerLayout) -> None:
     speaker_dir = speaker_layout.add_speaker()
 
     manager = MetaManager(speaker_info_dir=speaker_layout.root)
@@ -42,7 +46,9 @@ def test_discovers_old_mycoeiroink(speaker_layout) -> None:
     assert model_path.hop_length == 512
 
 
-def test_ignores_hidden_directories_and_macos_sidecars(speaker_layout) -> None:
+def test_ignores_hidden_directories_and_macos_sidecars(
+    speaker_layout: SpeakerLayout,
+) -> None:
     speaker_layout.add_speaker()
     (speaker_layout.root / "__MACOSX").mkdir()
     (speaker_layout.root / ".hidden").mkdir()
@@ -54,19 +60,19 @@ def test_ignores_hidden_directories_and_macos_sidecars(speaker_layout) -> None:
     ]
 
 
-def test_rejects_missing_speaker_info_directory(speaker_layout) -> None:
+def test_rejects_missing_speaker_info_directory(speaker_layout: SpeakerLayout) -> None:
     with pytest.raises(SpeakerInfoError, match="does not exist"):
         MetaManager(speaker_info_dir=speaker_layout.root / "missing")
 
 
-def test_rejects_missing_metas(speaker_layout) -> None:
+def test_rejects_missing_metas(speaker_layout: SpeakerLayout) -> None:
     (speaker_layout.root / speaker_layout.speaker_uuid).mkdir(parents=True)
 
     with pytest.raises(SpeakerInfoError, match=r"metas\.json is missing"):
         MetaManager(speaker_info_dir=speaker_layout.root)
 
 
-def test_rejects_missing_model(speaker_layout) -> None:
+def test_rejects_missing_model(speaker_layout: SpeakerLayout) -> None:
     speaker_dir = speaker_layout.add_speaker()
     (speaker_dir / "model" / str(speaker_layout.style_id) / "model.pth").unlink()
 
@@ -74,7 +80,7 @@ def test_rejects_missing_model(speaker_layout) -> None:
         MetaManager(speaker_info_dir=speaker_layout.root)
 
 
-def test_rejects_duplicate_style_id(speaker_layout) -> None:
+def test_rejects_duplicate_style_id(speaker_layout: SpeakerLayout) -> None:
     speaker_dir = speaker_layout.add_speaker()
     metas_path = speaker_dir / "metas.json"
     meta = json.loads(metas_path.read_text(encoding="utf-8"))
@@ -88,7 +94,9 @@ def test_rejects_duplicate_style_id(speaker_layout) -> None:
         MetaManager(speaker_info_dir=speaker_layout.root)
 
 
-def test_rejects_duplicate_speaker_uuid_across_directories(speaker_layout) -> None:
+def test_rejects_duplicate_speaker_uuid_across_directories(
+    speaker_layout: SpeakerLayout,
+) -> None:
     speaker_layout.add_speaker(folder_name="first")
     speaker_layout.add_speaker(folder_name="second")
 
@@ -96,7 +104,9 @@ def test_rejects_duplicate_speaker_uuid_across_directories(speaker_layout) -> No
         MetaManager(speaker_info_dir=speaker_layout.root)
 
 
-def test_allows_same_style_id_for_different_speakers(speaker_layout) -> None:
+def test_allows_same_style_id_for_different_speakers(
+    speaker_layout: SpeakerLayout,
+) -> None:
     speaker_layout.add_speakers(2)
 
     manager = MetaManager(speaker_info_dir=speaker_layout.root)
@@ -104,7 +114,9 @@ def test_allows_same_style_id_for_different_speakers(speaker_layout) -> None:
     assert len(manager.get_metas_dict()) == 2
 
 
-def test_resolves_same_style_id_by_explicit_speaker_uuid(speaker_layout) -> None:
+def test_resolves_same_style_id_by_explicit_speaker_uuid(
+    speaker_layout: SpeakerLayout,
+) -> None:
     first_speaker_dir, second_speaker_dir = speaker_layout.add_speakers(2)
     manager = MetaManager(speaker_info_dir=speaker_layout.root)
 
@@ -126,7 +138,7 @@ def test_resolves_same_style_id_by_explicit_speaker_uuid(speaker_layout) -> None
     )
 
 
-def test_rejects_ambiguous_legacy_style_id(speaker_layout) -> None:
+def test_rejects_ambiguous_legacy_style_id(speaker_layout: SpeakerLayout) -> None:
     speaker_layout.add_speakers(2)
     manager = MetaManager(speaker_info_dir=speaker_layout.root)
 

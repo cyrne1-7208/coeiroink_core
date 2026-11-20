@@ -1,4 +1,4 @@
-"""OpenCL実行時に、VITSの1D畳み込みを等価な2D演算へ変換する。"""
+# OpenCL実行時にVITSの1D畳み込みを等価な2D演算へ変換する処理
 
 from collections.abc import Sequence
 from typing import Any
@@ -10,8 +10,8 @@ _CONVOLUTION = torch.ops.aten.convolution.default
 _RANDN_LIKE = torch.ops.aten.randn_like.default
 
 
+# 1D畳み込みの引数へ幅方向の値を追加する。
 def _expand_dimension(value: Any, trailing_value: int) -> Any:
-    """1D畳み込みの引数へ幅方向の値を追加する。"""
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         if len(value) == 1:
             return [value[0], trailing_value]
@@ -19,9 +19,8 @@ def _expand_dimension(value: Any, trailing_value: int) -> Any:
     return [value, trailing_value]
 
 
+# OpenCLの2D畳み込み実装でVITSの1D畳み込みを実行するモード
 class OpenCLVitsMode(TorchDispatchMode):
-    """OpenCLの2D畳み込み実装でVITSの1D畳み込みを実行するモード。"""
-
     def __torch_dispatch__(
         self,
         func: Any,
@@ -50,12 +49,11 @@ class OpenCLVitsMode(TorchDispatchMode):
 
         return func(*args, **call_kwargs)
 
+    # 入力と重みへダミー幅を追加し、1D畳み込みの各引数を等価な2D形式へ変換する。
     @staticmethod
     def _convert_convolution(
         args: tuple[Any, ...],
     ) -> tuple[Any, ...] | None:
-        """入力と重みへダミー幅を追加し、1D畳み込みの各引数を等価な2D形式へ変換する。"""
-
         if len(args) < 9:
             return None
         input_tensor, weight = args[0], args[1]

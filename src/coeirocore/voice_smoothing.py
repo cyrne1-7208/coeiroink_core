@@ -1,4 +1,4 @@
-"""母音内の音色と周期間隔の細かな揺れを弱める、任意のCPU後処理。"""
+# 母音内の音色と周期間隔の細かな揺れを弱める任意のCPU後処理
 
 from collections.abc import Sequence
 
@@ -7,16 +7,19 @@ import parselmouth
 from parselmouth.praat import call
 from scipy import interpolate, ndimage
 
-from .voice_smoothing_common import _prepare_spans
+from .voice_smoothing_common import (
+    _MAGNITUDE_SIGMA,
+    _ONSET_PROTECTION,
+    _PERIOD_SIGMA,
+    _PITCH_CEILING,
+    _PITCH_FLOOR,
+    _PITCH_TIME_STEP,
+    _prepare_spans,
+)
 
-_PITCH_FLOOR = 65.0
-_PITCH_CEILING = 550.0
-_ONSET_PROTECTION = 0.100
 _FADE_SECONDS = 0.025
-_MAGNITUDE_SIGMA = 0.015
 _MAGNITUDE_STRENGTH = 0.85
 _MAGNITUDE_LIMIT = 4 * np.log(10) / 20
-_PERIOD_SIGMA = 0.025
 _PERIOD_STRENGTH = 0.5
 # 周期ごとの位相座標は入力長と無関係で、長音でもFFT用配列を一定サイズに抑える。
 _PHASE = np.arange(2048) / 1024 - 1
@@ -27,7 +30,9 @@ _FRAME_BATCH = 256
 def _pulse_marks(wave: np.ndarray, sampling_rate: int) -> np.ndarray:
     sound = parselmouth.Sound(wave, sampling_frequency=sampling_rate)
     pitch = sound.to_pitch_cc(
-        time_step=0.005, pitch_floor=_PITCH_FLOOR, pitch_ceiling=_PITCH_CEILING
+        time_step=_PITCH_TIME_STEP,
+        pitch_floor=_PITCH_FLOOR,
+        pitch_ceiling=_PITCH_CEILING,
     )
     points = call([sound, pitch], "To PointProcess (cc)")
     if call(points, "Get number of points") == 0:
@@ -174,6 +179,7 @@ def _smooth_periods(
     return result
 
 
+# 未トリムの波形へ固定設定の補正を適用し、長さと平均音量を維持する。
 def smooth_voice(
     wave: np.ndarray,
     tokens: Sequence[str],
@@ -182,8 +188,6 @@ def smooth_voice(
     sampling_rate: int,
     hop_length: int,
 ) -> np.ndarray:
-    """未トリムの波形へ固定設定の補正を適用し、長さと平均音量を維持する。"""
-
     spans = _prepare_spans(
         wave,
         tokens,
@@ -208,6 +212,6 @@ def smooth_voice(
     )
     if not np.isfinite(result_energy) or result_energy <= 0:
         raise RuntimeError("voice smoothing produced an invalid waveform")
-    # APIのvolumeScaleとは別に、補正前の平均音量を保つ。
+    # APIのvolumeScaleとは別に補正前の平均音量を保つ。
     result *= np.sqrt(original_energy / result_energy)
     return result.astype(wave.dtype, copy=False)

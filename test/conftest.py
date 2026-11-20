@@ -1,4 +1,4 @@
-"""Coreテストで共有する最小のフィクスチャとフェイクモデルを提供する。"""
+# Coreテストで共有する最小のフィクスチャとフェイクモデル
 
 from __future__ import annotations
 
@@ -16,10 +16,9 @@ SPEAKER_UUID_3 = "00000000-0000-4000-8000-000000000003"
 STYLE_ID = 1001
 
 
+# 実モデルを使わずにMYCOEIROINK形式のspeaker_infoディレクトリを組み立てるクラス
 @dataclass(frozen=True, slots=True)
 class SpeakerLayout:
-    """実モデルを使わずにMYCOEIROINK形式のspeaker_infoディレクトリを組み立てる。"""
-
     root: Path
     speaker_uuid: str = SPEAKER_UUID
     second_speaker_uuid: str = SPEAKER_UUID_2
@@ -75,10 +74,9 @@ def speaker_layout(tmp_path: Path) -> SpeakerLayout:
     return SpeakerLayout(root=tmp_path / "speaker_info")
 
 
+# テスト間で状態を共有しない最小のEspnetModel代替クラスを返す。
 @pytest.fixture
 def fake_espnet_model_cls() -> type:
-    """テスト間で状態を共有しない最小のEspnetModel代替クラスを返す。"""
-
     class FakeEspnetModel:
         instances: ClassVar[list[FakeEspnetModel]] = []
         track_instances: ClassVar[bool] = True

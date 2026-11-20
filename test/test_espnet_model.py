@@ -1,4 +1,4 @@
-"""EspnetModelの推論モード・話速制御・正規化・常駐バイト数計測を検証する。"""
+# EspnetModelの推論モード・話速制御・正規化・常駐バイト数計測のテスト
 
 from __future__ import annotations
 

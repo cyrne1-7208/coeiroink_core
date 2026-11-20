@@ -1,4 +1,4 @@
-"""OpenCLで実装したVITS向けATen演算のCPU比較テスト。"""
+# OpenCLで実装したVITS向けATen演算のCPU比較テスト
 
 from __future__ import annotations
 
@@ -302,6 +302,7 @@ def test_empty_weight_norm_raises_cleanly() -> None:
         torch.ops.aten._weight_norm_interface(values, scale, 0)
 
 
+# 同一のOpenCL畳み込みを異なる時間長で実行しても、計算結果がCPUと一致することを検証する。
 @pytest.mark.parametrize(
     "module",
     [
@@ -321,8 +322,6 @@ def test_empty_weight_norm_raises_cleanly() -> None:
 def test_convolution_reuses_backend_across_dynamic_lengths(
     module: torch.nn.Module,
 ) -> None:
-    """同一のOpenCL畳み込みを異なる時間長で実行しても、計算結果がCPUと一致することを検証する。"""
-
     torch.manual_seed(4)
     cpu_module = copy.deepcopy(module)
     opencl_module = copy.deepcopy(module).to(_OCL_DEVICE)

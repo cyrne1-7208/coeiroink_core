@@ -1,4 +1,4 @@
-"""OpenCL向けグループ畳み込み置換（OpenCLVitsMode）がCPU結果と一致することを検証する。"""
+# OpenCLVitsModeによるOpenCL向けグループ畳み込み置換がCPU結果と一致することを検証するテスト
 
 from __future__ import annotations
 

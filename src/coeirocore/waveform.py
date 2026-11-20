@@ -1,4 +1,4 @@
-"""COEIROINKの波形トリムと出力リサンプリングを提供する。"""
+# COEIROINKの波形トリムと出力リサンプリング
 
 import os
 import sys
@@ -16,9 +16,8 @@ _RESAMPY_LOCK = Lock()
 _resampy_thread_limit: int | None = None
 
 
+# 明示されたCPUスレッド上限をリサンプリング用にも保存する。
 def _configure_resampler_threads(num_threads: int) -> None:
-    """明示されたCPUスレッド上限を、リサンプリング用にも保存する。"""
-
     global _resampy_thread_limit
     with _RESAMPY_LOCK:
         # Numbaは初回import時にプールの最大数を固定するため、それ以降は環境変数を変更しない。
@@ -31,19 +30,17 @@ def _configure_resampler_threads(num_threads: int) -> None:
         _resampy_thread_limit = num_threads
 
 
+# 公開設定値を検証し、対応するリサンプラー名へ絞り込む。
 def normalize_resampler(value: str) -> Resampler:
-    """公開設定値を検証し、対応するリサンプラー名へ絞り込む。"""
-
     if value not in SUPPORTED_RESAMPLERS:
         supported = ", ".join(SUPPORTED_RESAMPLERS)
         raise ValueError(f"unsupported resampler: {value!r} ({supported})")
     return cast(Resampler, value)
 
 
+# 明示的に選択された場合だけsoxrを読み込む。
 @lru_cache(maxsize=1)
 def _load_soxr() -> Any:
-    """明示的に選択された場合だけsoxrを読み込む。"""
-
     try:
         import soxr
     except ModuleNotFoundError as error:
@@ -56,9 +53,8 @@ def _load_soxr() -> Any:
     return soxr
 
 
+# 初期化時に指定されたリサンプラーの利用可能性を検証し、暗黙の代替動作を防ぐ。
 def ensure_resampler_available(resampler: str) -> Resampler:
-    """初期化時に指定されたリサンプラーの利用可能性を検証し、暗黙の代替動作を防ぐ。"""
-
     normalized = normalize_resampler(resampler)
     if normalized == "soxr-vhq":
         _load_soxr()
@@ -72,8 +68,25 @@ def detect_non_silent_range(
     frame_length: int = 2048,
     hop_length: int = 512,
 ) -> np.ndarray:
-    """librosa.effects.trimと同じRMS判定で非無音区間を返す。"""
+    """
+    librosa.effects.trimと同じRMS判定で非無音区間を返す。
 
+    Parameters
+    ----------
+    wave : np.ndarray
+        判定する波形で、最終軸を時間軸として扱う。
+    top_db : float
+        最大値から何dB下までを非無音とみなすか
+    frame_length : int
+        RMSを計算するフレームのサンプル数
+    hop_length : int
+        フレームをずらすサンプル数
+
+    Returns
+    -------
+    np.ndarray
+        非無音区間の開始位置と終了位置のサンプル番号で、非無音区間がない場合は[0, 0]になる。
+    """
     samples = np.asarray(wave)
     if samples.ndim < 1:
         raise ValueError("wave must have at least one dimension")
@@ -89,7 +102,7 @@ def detect_non_silent_range(
         axis=-1,
     )[..., ::hop_length, :]
     # sliding_window_viewはメモリをコピーしないが、全フレームを一度に二乗すると大きな一時配列ができる。
-    # そのため、二乗計算を約8MiB以下の単位に分ける。
+    # そのため二乗計算を約8MiB以下の単位に分ける。
     leading_values = prod(frames.shape[:-2])
     bytes_per_frame = max(
         1,
@@ -121,13 +134,13 @@ def detect_non_silent_range(
     return np.asarray([start, end], dtype=np.int64)
 
 
+# 非無音区間だけを入力配列の最終軸から切り出す。
 def trim_silence(wave: np.ndarray, *, top_db: float = 30.0) -> np.ndarray:
-    """非無音区間だけを入力配列の最終軸から切り出す。"""
-
     detected_range = detect_non_silent_range(wave, top_db=top_db)
     return np.asarray(wave)[..., detected_range[0] : detected_range[1]]
 
 
+# 選択された実装でモノラル波形を変換し、従来と同じサンプル数を返す。
 def resample_waveform(
     wave: np.ndarray,
     sampling_rate: int,
@@ -135,8 +148,6 @@ def resample_waveform(
     *,
     resampler: str = "resampy",
 ) -> np.ndarray:
-    """選択された実装でモノラル波形を変換し、従来と同じサンプル数を返す。"""
-
     samples = np.asarray(wave)
     if samples.ndim != 1:
         raise ValueError("resampling requires a one-dimensional waveform")
