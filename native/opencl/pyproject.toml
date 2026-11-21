@@ -2,6 +2,9 @@
 requires = [
   "scikit-build-core>=0.11,<0.12",
   "pybind11>=3,<4",
+  # scikit-build-coreがCMakeとNinjaを追加で要求すると、uvはTorchを実行時の版に固定せずに解決し直すため、最初から入れておく。
+  "cmake>=3.31,<4",
+  "ninja>=1.11",
   # pt_oclはPyTorchのC++ ABIへリンクするため、ビルド時と実行時で同じバージョンを使う。
   "torch==2.14.1",
 ]
