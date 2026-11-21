@@ -192,6 +192,7 @@ cpu = [
 cuda = [
     { name = "cupy-cuda13x" },
     { name = "espnet" },
+    { name = "nvidia-cuda-nvrtc", marker = "sys_platform == 'win32'" },
     { name = "torch", version = "2.14.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
     { name = "torchaudio", version = "2.11.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
 ]
@@ -232,6 +233,7 @@ requires-dist = [
     { name = "jaconv", specifier = ">=0.4,<1" },
     { name = "numba", specifier = ">=0.68,<0.69" },
     { name = "numpy", specifier = ">=2.3,<2.4" },
+    { name = "nvidia-cuda-nvrtc", marker = "sys_platform == 'win32' and extra == 'cuda'", specifier = "==13.0.88" },
     { name = "praat-parselmouth", marker = "sys_platform == 'win32' and extra == 'directml'", specifier = "==0.4.7" },
     { name = "praat-parselmouth", marker = "extra == 'cpu'", specifier = "==0.4.7" },
     { name = "psutil", specifier = ">=7.2,<8" },

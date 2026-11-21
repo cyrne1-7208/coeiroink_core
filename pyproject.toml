@@ -43,6 +43,8 @@ cuda = [
     "torchaudio==2.11.0",
     # CUDA版の音声補正も同じGPU上で実行するためのCUDA 13系バインディング。
     "cupy-cuda13x==14.2.0",
+    # LinuxではPyTorchの依存として入るNVRTCを、WindowsではCuPyが探すsite-packagesへ別に導入する。
+    "nvidia-cuda-nvrtc==13.0.88; sys_platform == 'win32'",
 ]
 directml = [
     "espnet @ git+https://github.com/espnet/espnet.git@v.202611 ; sys_platform == 'win32'",
