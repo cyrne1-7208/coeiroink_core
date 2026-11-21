@@ -17,8 +17,6 @@ urls = { Homepage = "https://github.com/cyrne1-7208/coeiroink_core" }
 dependencies = [
     # 既存のMYCOEIROINKモデルで使われる、ESPnetのjaconvテキストクリーナー。
     "jaconv>=0.4,<1",
-    # ESPnetのjaconvクリーナーが読み込むtacotron_cleanerを提供する。
-    "espnet-tts-frontend>=0.0.3,<1",
     "numba>=0.68,<0.69",
     "numpy>=2.3,<2.4",
     "pyopenjtalk @ git+https://github.com/r9y9/pyopenjtalk.git@v0.4.1",
