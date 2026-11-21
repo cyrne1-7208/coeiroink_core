@@ -19,12 +19,19 @@ on:
       - pyproject.toml
       - uv.lock
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "検証するブランチ、タグ、またはコミット。空欄の場合は実行したブランチ"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: core-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # pull requestでは古い実行を取り消し、pushと手動実行はコミットごとに最後まで実行する。
+  group: core-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -34,8 +41,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out source
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Set up Python and uv
@@ -66,8 +74,33 @@ jobs:
 
       - name: Run Ruff
         run: |
-          uv run --locked --extra cpu --group dev ruff check src test
-          uv run --locked --extra cpu --group dev ruff format --check src test
+          uv run --locked --extra cpu --group dev ruff check .
+          uv run --locked --extra cpu --group dev ruff format --check .
+
+      - name: Run unit tests
+        run: uv run --locked --extra cpu --group dev pytest -q
+
+  windows-cpu:
+    name: Windows CPU (Python 3.14)
+    # Windowsでテスト全体が通ることを確かめるまでは、手動実行のときだけ動かす。
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Set up Python and uv
+        uses: ./.github/actions/setup-uv
+        with:
+          python-version: "3.14"
+          enable-cache: "true"
+
+      - name: Install Windows CPU dependencies
+        run: uv sync --locked --extra cpu --group dev
 
       - name: Run unit tests
         run: uv run --locked --extra cpu --group dev pytest -q
