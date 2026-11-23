@@ -42,6 +42,8 @@ coeiroink_core/
 | `max_loaded_models` | `1` | LRU保持数の上限。`None`で起動時に全モデルを読込。Engineは`--max-loaded-models` |
 | `dangerous_skip_check` | `False` | `True`で容量不足を警告だけにし、拒否と自動解放を省略。Engineは`--dangerous-skip-check` |
 | `voice_smoothing` | `False` | `True`で`synthesis`時の母音の揺れを抑制。`predict`と`predict_with_duration`は対象外で、Engineは`--experimental voice-smoothing` |
+| `skip_trailing_silence` | `False` | `True`で`synthesis`時に文末の無音のdecoder処理を省略。`predict`と`predict_with_duration`は呼び出しごとに指定し、Engineは`--experimental skip-trailing-silence` |
+| `chunked_decoding` | `False` | `True`で約9秒を超える推論のdecoderを分割実行。Engineは`--experimental chunked-decoding` |
 
 ### メモリ管理
 

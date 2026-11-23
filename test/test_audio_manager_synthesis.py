@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from types import ModuleType
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
@@ -298,3 +300,101 @@ def test_rejects_invalid_synthesis_parameters(
             style_id=speaker_layout.style_id,
             **{parameter: value},
         )
+
+
+def test_trailing_silence_is_skipped_only_for_trimming_callers(
+    speaker_layout: SpeakerLayout,
+    fake_espnet_model_cls: type,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    speaker_layout.add_speaker()
+    ids = np.arange(3, dtype=np.int64)
+    calls: list[tuple[str, bool]] = []
+    scope_inputs: list[object] = []
+
+    class ScopeModel(fake_espnet_model_cls):
+        skipping = False
+
+        def encode_text_with_tokens(self, _text: str) -> tuple[np.ndarray, list[str]]:
+            return ids, ["^", "a", "$"]
+
+        @contextmanager
+        def skipping_trailing_silence(self, text: np.ndarray) -> Iterator[None]:
+            scope_inputs.append(text)
+            self.skipping = True
+            try:
+                yield
+            finally:
+                self.skipping = False
+
+        def make_voice(self, _text: np.ndarray) -> np.ndarray:
+            calls.append(("wave", self.skipping))
+            return np.ones(4, dtype=np.float32)
+
+        def make_voice_with_duration(self, _text: np.ndarray) -> PredictionResult:
+            calls.append(("duration", self.skipping))
+            return PredictionResult(np.ones(4, dtype=np.float32), [4])
+
+    monkeypatch.setattr(coeiro_manager, "EspnetModel", ScopeModel)
+    monkeypatch.setattr(AudioManager, "trim", staticmethod(lambda wave: wave))
+
+    manager = AudioManager(
+        speaker_info_dir=speaker_layout.root, skip_trailing_silence=True
+    )
+    tokens = ["^", "a", "$"]
+    # 文字列は文末記号を判定できるよう、推論前にモデルの前処理でID列へ変換する。
+    manager.synthesis("あ", speaker_layout.style_id)
+    manager.synthesis(tokens, speaker_layout.style_id)
+    # 未トリムの波形を返すAPIは、呼び出し元が指定した場合だけ文末の無音を省く。
+    manager.predict(tokens, speaker_layout.style_id)
+    manager.predict(tokens, speaker_layout.style_id, skip_trailing_silence=True)
+    manager.predict_with_duration(tokens, speaker_layout.style_id)
+    manager.predict_with_duration(
+        tokens, speaker_layout.style_id, skip_trailing_silence=True
+    )
+
+    assert manager.skip_trailing_silence
+    assert scope_inputs[0] is ids
+    assert calls == [
+        ("wave", True),
+        ("wave", True),
+        ("wave", False),
+        ("wave", True),
+        ("duration", False),
+        ("duration", True),
+    ]
+
+
+def test_chunked_decoding_is_passed_to_model_loading(
+    speaker_layout: SpeakerLayout,
+    fake_espnet_model_cls: type,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    speaker_layout.add_speaker()
+    captured: list[object] = []
+
+    class LoadingModel(fake_espnet_model_cls):
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            captured.append(kwargs["chunked_decoding"])
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(coeiro_manager, "EspnetModel", LoadingModel)
+
+    for chunked_decoding in (False, True):
+        manager = AudioManager(
+            speaker_info_dir=speaker_layout.root, chunked_decoding=chunked_decoding
+        )
+        manager.initialize_speaker(speaker_layout.style_id)
+
+    assert captured == [False, True]
+
+
+@pytest.mark.parametrize("option", ["skip_trailing_silence", "chunked_decoding"])
+def test_rejects_non_boolean_experimental_options(
+    speaker_layout: SpeakerLayout,
+    option: str,
+) -> None:
+    speaker_layout.add_speaker()
+
+    with pytest.raises(TypeError, match=option):
+        AudioManager(speaker_info_dir=speaker_layout.root, **{option: 1})

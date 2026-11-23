@@ -5,7 +5,7 @@ import math
 import threading
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import nullcontext
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -21,6 +21,7 @@ from .espnet_vits_loader import load_generator_only_text_to_speech
 from .model_memory import model_load_memory_error
 from .opencl import OpenCLVitsMode
 from .pyworld_compat import load_pyworld
+from .vits_decoder import VitsDecoder, install_vits_decoder
 from .waveform import (
     _configure_resampler_threads,
     ensure_resampler_available,
@@ -481,6 +482,10 @@ class MetaManager:
         ).hop_length
 
 
+# 文末を表すプロソディ記号
+_SENTENCE_END_TOKENS = frozenset(("$", "?"))
+
+
 # ESPnetのMYCOEIROINKモデルとそのモデル固有のトークン変換器を保持するクラス
 class EspnetModel:
     def __init__(
@@ -493,6 +498,7 @@ class EspnetModel:
         device_index: int = 0,
         opencl_platform_index: int = 0,
         generator_only: bool = True,
+        chunked_decoding: bool = False,
     ) -> None:
         self.device_selection = _resolve_inference_device(
             device=device,
@@ -526,6 +532,12 @@ class EspnetModel:
                 noise_scale_dur=_VITS_NOISE_SCALE,
             )
         optimize_espnet_for_inference(self.tts_model)
+        # 実験的な分割実行は、読み込み時にdecoderを置き換えて有効にする。
+        self._vits_decoder: VitsDecoder | None = (
+            install_vits_decoder(self.tts_model, chunked=True)
+            if chunked_decoding
+            else None
+        )
         # alpha非対応モデルへ推論引数を渡さないよう、モデル読み込み時に対応状況を確認する。
         self._supports_speed_control = "alpha" in self.tts_model.decode_conf
         if not self._supports_speed_control and speed_scale != 1.0:
@@ -537,6 +549,11 @@ class EspnetModel:
         self.token_id_converter = TokenIDConverter(
             token_list=token_list,
             unk_symbol="<unk>",
+        )
+        self._sentence_end_ids = frozenset(
+            index
+            for index, token in enumerate(token_list)
+            if token in _SENTENCE_END_TOKENS
         )
 
     # メモリ判定時点のモデルの常駐テンソル量の概算値を返す。
@@ -567,6 +584,22 @@ class EspnetModel:
         if not self._supports_speed_control and speed_control_alpha != 1.0:
             raise ValueError("the loaded ESPnet model does not support speed control")
         self._speed_control_alpha = speed_control_alpha
+
+    # 文末記号で終わる入力の推論で、文末の無音をdecoderに通さない範囲を返す。
+    #
+    # VITS以外のモデルや文末記号で終わらない入力では、何もしない範囲を返す。
+    def skipping_trailing_silence(
+        self, text: str | torch.Tensor | np.ndarray
+    ) -> AbstractContextManager[None]:
+        if isinstance(text, str):
+            text, _ = self.encode_text_with_tokens(text)
+        if len(text) == 0 or int(text[-1]) not in self._sentence_end_ids:
+            return nullcontext()
+        if self._vits_decoder is None:
+            self._vits_decoder = install_vits_decoder(self.tts_model)
+        if self._vits_decoder is None:
+            return nullcontext()
+        return self._vits_decoder.skipping_trailing_silence()
 
     @staticmethod
     def text2tokens(text: str) -> list[str]:
@@ -695,6 +728,10 @@ class AudioManager:
     dangerous_skip_check : bool
         容量不足を警告だけにし、容量不足による拒否と自動解放を省略するか
         保持数上限と実際の読み込みエラーは無効化しない。
+    skip_trailing_silence : bool
+        synthesisで文末の無音をdecoderに通さず、無音で埋めるか
+    chunked_decoding : bool
+        約9秒を超える推論で、decoderを重なり付きで分割して実行するか
     """
 
     def __init__(
@@ -712,6 +749,8 @@ class AudioManager:
         voice_smoothing: bool = False,
         preload_models: bool = True,
         dangerous_skip_check: bool = False,
+        skip_trailing_silence: bool = False,
+        chunked_decoding: bool = False,
     ) -> None:
         if not _is_strict_int(fs) or fs <= 0:
             raise ValueError("fs must be a positive integer")
@@ -725,6 +764,10 @@ class AudioManager:
             raise TypeError("voice_smoothing must be a boolean")
         if not isinstance(dangerous_skip_check, bool):
             raise TypeError("dangerous_skip_check must be a boolean")
+        if not isinstance(skip_trailing_silence, bool):
+            raise TypeError("skip_trailing_silence must be a boolean")
+        if not isinstance(chunked_decoding, bool):
+            raise TypeError("chunked_decoding must be a boolean")
         if cpu_num_threads is not None:
             if not _is_strict_int(cpu_num_threads) or cpu_num_threads < 0:
                 raise ValueError("cpu_num_threads must be zero or a positive integer")
@@ -754,6 +797,8 @@ class AudioManager:
         self._max_loaded_models = max_loaded_models
         self._generator_only = generator_only
         self._dangerous_skip_check = dangerous_skip_check
+        self._skip_trailing_silence = skip_trailing_silence
+        self._chunked_decoding = chunked_decoding
         self._current_model_key: ModelKey | None = None
         self.current_speaker_model: EspnetModel | None = None
         self._synthesis_lock = threading.RLock()
@@ -850,6 +895,7 @@ class AudioManager:
                 speed_scale=1 / speed_scale,
                 device=self.device_selection,
                 generator_only=self._generator_only,
+                chunked_decoding=self._chunked_decoding,
             )
         except Exception as error:
             raise ModelLoadError(
@@ -1034,6 +1080,11 @@ class AudioManager:
     def voice_smoothing(self) -> bool:
         return self._voice_smoother is not None
 
+    # synthesisで文末の無音をdecoderに通さないかを返す。
+    @property
+    def skip_trailing_silence(self) -> bool:
+        return self._skip_trailing_silence
+
     # 未加工のpredictとは分け、ネイティブAPIとVOICEVOX互換APIに同じ音声補正を適用する。
     def smooth_voice(
         self,
@@ -1145,7 +1196,9 @@ class AudioManager:
             active_speaker_uuid = self._active_speaker_uuid()
             try:
                 if isinstance(text, str) and (
-                    self.voice_smoothing or pause_control_requested
+                    self.voice_smoothing
+                    or pause_control_requested
+                    or self._skip_trailing_silence
                 ):
                     model_input, tokens = model.encode_text_with_tokens(text)
                 else:
@@ -1159,12 +1212,19 @@ class AudioManager:
                     and isinstance(tokens, list)
                     and "_" in tokens
                 )
-                if not duration_required:
-                    wav = model.make_voice(model_input)
-                else:
-                    prediction = model.make_voice_with_duration(model_input)
-                    wav = prediction.wav
-                    duration_frames = prediction.duration_frames
+                # 合成結果は後ろの無音をトリムするため、文末の無音をdecoderに通さなくてよい。
+                trailing_silence = (
+                    model.skipping_trailing_silence(model_input)
+                    if self._skip_trailing_silence
+                    else nullcontext()
+                )
+                with trailing_silence:
+                    if not duration_required:
+                        wav = model.make_voice(model_input)
+                    else:
+                        prediction = model.make_voice_with_duration(model_input)
+                        wav = prediction.wav
+                        duration_frames = prediction.duration_frames
             except Exception as error:
                 raise SynthesisError(
                     f"Failed to synthesize MYCOEIROINK style {style_id} for "
@@ -1219,6 +1279,8 @@ class AudioManager:
         style_id: int,
         speed_scale: float = 1.0,
         speaker_uuid: str | None = None,
+        *,
+        skip_trailing_silence: bool = False,
     ) -> PredictionResult:
         """
         未トリムのモデル波形とトークンごとのフレーム長を返す。
@@ -1235,6 +1297,9 @@ class AudioManager:
             話速の倍率
         speaker_uuid : str | None
             話者UUIDで、Noneの場合は全話者で一意なスタイルIDとして解決する。
+        skip_trailing_silence : bool
+            文末の無音をdecoderに通さず、無音で埋めるか
+            波形の後ろの無音をトリムする呼び出し元だけが指定する。
 
         Returns
         -------
@@ -1251,7 +1316,13 @@ class AudioManager:
             active_speaker_uuid = self._active_speaker_uuid()
             try:
                 model_input = text if isinstance(text, str) else model.tokens2ids(text)
-                return model.make_voice_with_duration(model_input)
+                trailing_silence = (
+                    model.skipping_trailing_silence(model_input)
+                    if skip_trailing_silence
+                    else nullcontext()
+                )
+                with trailing_silence:
+                    return model.make_voice_with_duration(model_input)
             except SynthesisError:
                 raise
             except Exception as error:
@@ -1266,6 +1337,8 @@ class AudioManager:
         style_id: int,
         speed_scale: float = 1.0,
         speaker_uuid: str | None = None,
+        *,
+        skip_trailing_silence: bool = False,
     ) -> np.ndarray:
         """
         COEIROINK v2のpredict APIに対応し、後処理前の未トリムなモデル波形を返す。
@@ -1280,6 +1353,9 @@ class AudioManager:
             話速の倍率
         speaker_uuid : str | None
             話者UUIDで、Noneの場合は全話者で一意なスタイルIDとして解決する。
+        skip_trailing_silence : bool
+            文末の無音をdecoderに通さず、無音で埋めるか
+            波形の後ろの無音をトリムする呼び出し元だけが指定する。
 
         Returns
         -------
@@ -1296,7 +1372,13 @@ class AudioManager:
             active_speaker_uuid = self._active_speaker_uuid()
             try:
                 model_input = text if isinstance(text, str) else model.tokens2ids(text)
-                return model.make_voice(model_input)
+                trailing_silence = (
+                    model.skipping_trailing_silence(model_input)
+                    if skip_trailing_silence
+                    else nullcontext()
+                )
+                with trailing_silence:
+                    return model.make_voice(model_input)
             except Exception as error:
                 raise SynthesisError(
                     f"Failed to predict MYCOEIROINK style {style_id} for "
